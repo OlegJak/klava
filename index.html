@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Klava — английский через набор текста</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="logo">K<span>a</span></div>
+    <select id="lesson" aria-label="Урок"></select>
+    <button id="restart" class="icon-btn" title="Начать заново (Esc)">↻</button>
+    <div class="stats">
+      <span title="Скорость, знаков в минуту"><b id="cpm">—</b> зн/мин</span>
+      <span title="Точность"><b id="acc">—</b></span>
+      <span title="Ошибки" class="err"><b id="errors">0</b> ошибок</span>
+      <span title="Пройдено"><b id="progress">0/0</b></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="board">
+      <div id="typed" class="typed"></div>
+      <div id="text" class="text" aria-live="polite"></div>
+      <div class="hint">
+        <span id="translation" class="translation"></span>
+        <button id="speak" class="icon-btn" title="Произнести (Ctrl+Space)">🔊</button>
+      </div>
+      <div id="layout-warn" class="warn" hidden>Переключите раскладку на английскую</div>
+    </section>
+
+    <section id="custom-box" class="custom" hidden>
+      <textarea id="custom-text" rows="5" placeholder="Вставьте любой английский текст и нажмите «Начать»"></textarea>
+      <button id="custom-start">Начать</button>
+    </section>
+
+    <div id="keyboard" class="keyboard"></div>
+
+    <footer class="bottom">
+      <label><input type="checkbox" id="show-tr" checked> Показывать перевод</label>
+      <label><input type="checkbox" id="auto-speak"> Озвучивать фразы</label>
+      <label title="Ctrl+K"><input type="checkbox" id="show-kb" checked> Показывать клавиатуру</label>
+      <span id="best" class="best"></span>
+      <button id="theme" class="link-btn">Тёмная тема</button>
+    </footer>
+  </main>
+
+  <div id="result" class="result" hidden>
+    <div class="card">
+      <h2>Урок пройден!</h2>
+      <p id="result-text"></p>
+      <button id="again">Ещё раз</button>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
