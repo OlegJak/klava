@@ -188,7 +188,8 @@ function render() {
 
   // Образец: пройденная часть приглушена, текущий символ подчёркнут
   let html = `<span class="passed">${escapeHtml(t.slice(0, state.pos))}</span>`;
-  if (state.pos < t.length) html += `<span class="cur">${escapeHtml(t[state.pos])}</span>` + escapeHtml(t.slice(state.pos + 1));
+  const cur = $('show-next').checked ? 'cur' : '';
+  if (state.pos < t.length) html += `<span class="${cur}">${escapeHtml(t[state.pos])}</span>` + escapeHtml(t.slice(state.pos + 1));
   const next = state.chunks[state.index + 1];
   if (next) html += `\n<span class="next">${escapeHtml(next.text)}</span>`;
   textEl.innerHTML = html;
@@ -202,7 +203,7 @@ function render() {
 
 function highlightTarget(ch) {
   document.querySelectorAll('.key.target').forEach((el) => el.classList.remove('target'));
-  const info = ch && keyByChar[ch];
+  const info = ch && $('show-next').checked && keyByChar[ch];
   if (!info) return;
   info.el.classList.add('target');
   // Shift нажимается мизинцем противоположной руки
@@ -350,7 +351,7 @@ function init() {
   $('again').addEventListener('click', startLesson);
   $('speak').addEventListener('click', (e) => { e.currentTarget.blur(); speak(); });
 
-  for (const id of ['show-tr', 'auto-speak']) {
+  for (const id of ['show-tr', 'auto-speak', 'show-next']) {
     const box = $(id);
     box.checked = store.get(id, box.checked);
     box.addEventListener('change', () => { store.set(id, box.checked); box.blur(); render(); });
