@@ -4,15 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Klava — английский через набор текста</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <header class="top">
-    <div class="logo">K<span>a</span></div>
-    <select id="lesson" aria-label="Урок"></select>
+    <div class="lesson-picker">
+      <button id="lesson-btn" class="lesson-btn" aria-haspopup="true" aria-expanded="false">
+        <span id="lesson-icon" class="lesson-icon"></span>
+        <span class="lesson-name"><small id="lesson-group"></small><b id="lesson-title"></b></span>
+        <span class="chev">▾</span>
+      </button>
+      <div id="lesson-menu" class="lesson-menu" hidden></div>
+    </div>
     <button id="restart" class="icon-btn" title="Начать заново (Esc)">↻</button>
     <div class="stats">
-      <span title="Скорость, знаков в минуту"><b id="cpm">—</b> зн/мин</span>
+      <span title="Скорость последней набранной строки, знаков в минуту"><b id="cpm">—</b> зн/мин</span>
       <span title="Точность"><b id="acc">—</b></span>
       <span title="Ошибки" class="err"><b id="errors">0</b> ошибок</span>
       <span title="Пройдено"><b id="progress">0/0</b></span>
@@ -27,6 +33,7 @@
         <span id="translation" class="translation"></span>
         <button id="speak" class="icon-btn" title="Произнести (Ctrl+Space)">🔊</button>
       </div>
+      <div id="lookup" class="lookup" hidden></div>
       <div id="layout-warn" class="warn" hidden>Переключите раскладку на английскую</div>
     </section>
 
@@ -38,14 +45,42 @@
     <div id="keyboard" class="keyboard"></div>
 
     <footer class="bottom">
-      <label><input type="checkbox" id="show-tr" checked> Показывать перевод</label>
-      <label><input type="checkbox" id="auto-speak"> Озвучивать фразы</label>
-      <label><input type="checkbox" id="show-next"> Подсвечивать следующую букву</label>
-      <label title="Ctrl+K"><input type="checkbox" id="show-kb" checked> Показывать клавиатуру</label>
-      <span id="best" class="best"></span>
-      <button id="theme" class="link-btn">Тёмная тема</button>
+      <div class="options-head">
+        <h3>Настройки</h3>
+        <span id="best" class="best"></span>
+        <button id="theme" class="pill-btn">Тёмная тема</button>
+      </div>
+      <div class="options">
+        <label class="opt">
+          <input type="checkbox" id="show-tr" checked><span class="switch"></span>
+          <span class="opt-text"><b>Перевод</b><small>Показывать перевод слова или фразы</small></span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="auto-speak"><span class="switch"></span>
+          <span class="opt-text"><b>Озвучка</b><small>Произносить каждую новую фразу</small></span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="keep-errors"><span class="switch"></span>
+          <span class="opt-text"><b>Не исправлять ошибки</b><small>Курсор идёт дальше, исправить — Backspace</small></span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="hardcore"><span class="switch"></span>
+          <span class="opt-text"><b>Хардкор</b><small>Backspace или Delete стирает всю строку</small></span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="show-kb" checked><span class="switch"></span>
+          <span class="opt-text"><b>Клавиатура</b><small>Показывать клавиатуру <kbd>Ctrl+K</kbd></small></span>
+        </label>
+      </div>
     </footer>
   </main>
+
+  <div id="word-tools" class="word-tools" hidden>
+    <b class="wt-text"></b>
+    <button data-act="speak" title="Произнести">🔊</button>
+    <button data-act="add">+ В словарь</button>
+    <button data-act="more">Ещё фразы</button>
+  </div>
 
   <div id="result" class="result" hidden>
     <div class="card">
@@ -55,7 +90,7 @@
     </div>
   </div>
 
-  <script src="data.js"></script>
-  <script src="app.js"></script>
+  <script src="data.js?v=9"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

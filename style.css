@@ -7,6 +7,7 @@
   --ok: #3a9d5d;
   --bad: #d64545;
   --accent: #3b7dd8;
+  --accent-soft: #eef4fd;
   --key: #ffffff;
   --key-shadow: #c9c9c9;
   /* Цвета зон пальцев */
@@ -24,6 +25,7 @@
   --ok: #5cc27f;
   --bad: #ff6b6b;
   --accent: #6ea8ff;
+  --accent-soft: #263447;
   --key: #2f3338;
   --key-shadow: #15171a;
   --f-lp: #5a3542; --f-lr: #5c4630; --f-lm: #5a5430; --f-li: #35523a;
@@ -52,15 +54,6 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.logo {
-  width: 40px; height: 40px;
-  display: grid; place-items: center;
-  border-radius: 6px;
-  background: var(--key);
-  box-shadow: 0 2px 0 var(--key-shadow);
-  font-weight: 700;
-}
-.logo span { color: var(--bad); font-size: 12px; margin-left: 1px; }
 
 select, textarea, button {
   font: inherit;
@@ -72,8 +65,55 @@ select, textarea, button {
 select { padding: 6px 8px; }
 button { padding: 6px 14px; cursor: pointer; }
 
+/* Выбор урока */
+.lesson-picker { position: relative; }
+.lesson-btn {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 240px; padding: 6px 12px 6px 8px;
+  text-align: left;
+  border-radius: 10px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.lesson-btn:hover, .lesson-btn.open { border-color: var(--accent); }
+.lesson-btn.open { box-shadow: 0 0 0 3px var(--accent-soft); }
+.lesson-icon {
+  width: 32px; height: 32px; display: grid; place-items: center;
+  border-radius: 8px; background: var(--accent-soft); font-size: 17px;
+}
+.lesson-name { display: flex; flex-direction: column; flex: 1; line-height: 1.2; }
+.lesson-name small { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.lesson-name b { font-size: 14px; font-weight: 600; }
+.chev { color: var(--muted); transition: transform .15s; }
+.lesson-btn.open .chev { transform: rotate(180deg); }
+
+.lesson-menu {
+  position: absolute; z-index: 20; top: calc(100% + 8px); left: 0;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(70vh, 640px); overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / .18);
+}
+.menu-group h4 {
+  margin: 4px 8px 6px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 6px 8px; text-align: left;
+  border: 1px solid transparent; background: none; border-radius: 8px;
+}
+.menu-item:hover { background: var(--bg); }
+.menu-item.current { background: var(--accent-soft); border-color: var(--accent); }
+.menu-icon { width: 24px; text-align: center; font-size: 16px; }
+.menu-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.menu-text b { font-size: 14px; font-weight: 500; }
+.menu-text small { font-size: 11px; color: var(--muted); }
+
 .icon-btn { padding: 4px 8px; border: none; background: none; font-size: 18px; }
-.link-btn { border: none; background: none; color: var(--accent); text-decoration: underline; padding: 0; }
 
 .stats { margin-left: auto; display: flex; gap: 16px; color: var(--muted); }
 .stats b { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -89,40 +129,84 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
   word-break: break-word;
 }
 
-/* Строка ввода: то, что набрал пользователь */
+/* Поле ввода над образцом: одинаковые шрифт, ширина и отступ слева,
+   поэтому каждая набранная буква стоит над своей буквой образца */
 .typed {
   min-height: calc(1.6em + 16px);
-  padding: 8px 10px;
-  margin-bottom: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
+.text { padding: 0 13px; } /* 12px + 1px рамки поля ввода */
+.text .passed { color: var(--muted); }
+.text .next { color: var(--muted); opacity: .6; }
+.text .end-hint { color: var(--accent); animation: blink 1s steps(2) infinite; } /* «нажмите пробел» */
+
 .typed .done { color: var(--ok); }
 .typed .miss { color: var(--bad); }
 .typed .wrong { color: #fff; background: var(--bad); border-radius: 2px; }
-.typed .caret {
-  display: inline-block;
+.typed .gap { background: var(--bad); opacity: .5; border-radius: 2px; }
+.typed .ghost { visibility: hidden; }
+/* Курсор — пустой строчный элемент с полоской через ::after: он не занимает места
+   и, в отличие от inline-block, не даёт браузеру перенести строку в этом месте */
+.typed .caret { position: relative; }
+.typed .caret::after {
+  content: '';
+  position: absolute; left: -1px; top: 0;
   width: 2px; height: 1.2em;
-  margin-left: 1px;
-  vertical-align: -0.2em;
   background: var(--accent);
   animation: blink 1s steps(2) infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* Образец: текст, который нужно набрать */
-.text {
-  padding: 0 11px 8px;
-  border-bottom: 1px solid var(--line);
-}
-.text .passed { color: var(--muted); }
-.text .cur { border-bottom: 2px solid var(--accent); }
-.text .next { color: var(--muted); opacity: .6; }
-
 .hint { display: flex; align-items: center; gap: 8px; min-height: 36px; margin-top: 6px; }
 .translation { color: var(--muted); font-style: italic; }
 .warn { color: var(--bad); margin-top: 4px; }
+
+/* Панель над словом или выделенной фразой */
+.word-tools {
+  position: fixed; z-index: 10;
+  display: flex; align-items: center; gap: 2px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+  font-size: 13px; white-space: nowrap;
+}
+.wt-text {
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 8px; font-weight: 600; color: var(--accent);
+}
+.word-tools button { padding: 4px 10px; border: none; background: none; border-radius: 7px; }
+.word-tools button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.word-tools button:disabled { color: var(--ok); cursor: default; }
+
+/* «Ещё фразы» */
+.lookup-head { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); }
+.lookup-head .lookup-hint { margin-left: 0; }
+.lookup-close { margin-left: auto; padding: 0 6px; border: none; background: none; font-size: 18px; line-height: 1; color: var(--muted); }
+.lookup-close:hover { color: var(--text); }
+.lookup-list { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.lookup-list li { display: flex; flex-direction: column; gap: 1px; }
+
+/* Слово по Ctrl */
+.text .look { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; }
+.lookup {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 12px;
+  margin-top: 4px; padding: 8px 12px;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+}
+.lookup-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 300px; }
+.lookup-en { font-size: 16px; }
+.lookup-en mark { background: none; color: var(--accent); font-weight: 700; }
+.lookup-ru { color: var(--muted); font-style: italic; }
+.lookup-hint { margin-left: auto; font-size: 12px; color: var(--muted); }
 
 .custom { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 .custom textarea { padding: 10px; resize: vertical; }
@@ -156,7 +240,6 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
   content: ''; position: absolute; bottom: 6px;
   width: 10px; height: 2px; background: var(--muted); border-radius: 1px;
 }
-.key.target { outline-color: var(--accent); transform: translateY(-2px); font-weight: 700; }
 .key.pressed { transform: translateY(1px); box-shadow: 0 1px 0 var(--key-shadow); }
 .key.wrong { outline-color: var(--bad); }
 
@@ -166,11 +249,63 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 .f-rr { background: var(--f-rr); } .f-rp { background: var(--f-rp); }
 .f-th, .f-none { background: var(--f-th); }
 
-.bottom {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
-  margin-top: 16px; color: var(--muted); font-size: 13px;
+/* Настройки */
+.bottom { margin-top: 24px; }
+.options-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.options-head h3 {
+  margin: 0; font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
 }
-.bottom .best { margin-left: auto; }
+.options-head .best { margin-left: auto; font-size: 13px; color: var(--muted); }
+.pill-btn {
+  padding: 5px 14px; border-radius: 999px; font-size: 13px;
+  transition: border-color .15s, color .15s;
+}
+.pill-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.opt {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.opt:hover { border-color: var(--accent); }
+.opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+
+.opt input { position: absolute; opacity: 0; pointer-events: none; }
+.switch {
+  flex: none; position: relative;
+  width: 34px; height: 20px; margin-top: 1px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background .15s;
+}
+.switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .25);
+  transition: transform .15s;
+}
+.opt input:checked + .switch { background: var(--accent); }
+.opt input:checked + .switch::after { transform: translateX(14px); }
+.opt input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.opt-text b { font-size: 14px; font-weight: 600; }
+.opt-text small { font-size: 12px; color: var(--muted); line-height: 1.3; }
+kbd {
+  font: 11px "SF Mono", Menlo, Consolas, monospace;
+  padding: 0 4px; border: 1px solid var(--line); border-radius: 3px;
+}
 
 .result {
   position: fixed; inset: 0;
