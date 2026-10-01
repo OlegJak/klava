@@ -142,11 +142,24 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 .text { padding: 0 13px; } /* 12px + 1px рамки поля ввода */
 .text .passed { color: var(--muted); }
 .text .next { color: var(--muted); opacity: .6; }
+/* Диктант */
+.typed .extra { color: var(--bad); text-decoration: line-through; }
+.typed .neutral { color: var(--muted); }
+.text .ok { color: var(--text); }
+.text .missing { color: var(--bad); background: rgb(214 69 69 / .15); border-radius: 2px; }
+.text .punct { color: var(--muted); }
+.dict-hint { font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
+.tr-prompt { font: 20px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text); }
+.translation .dict-hint { font-size: 13px; font-style: normal; }
+.dict-ok { color: var(--ok); font-style: normal; }
+.dict-bad { color: var(--bad); font-style: normal; }
 .text .end-hint { color: var(--accent); animation: blink 1s steps(2) infinite; } /* «нажмите пробел» */
 
-.typed .done { color: var(--ok); }
+.typed { cursor: text; } /* над полем ввода — текстовый курсор, как в обычном поле */
+.typed .done { color: var(--text); } /* верно набранное — обычным цветом текста, ошибки — красным */
 .typed .miss { color: var(--bad); }
-.typed .wrong { color: #fff; background: var(--bad); border-radius: 2px; }
+.typed .wrong { color: #fff; background: var(--bad); border-radius: 2px; animation: wrong-fade .3s ease-in forwards; }
+@keyframes wrong-fade { 0%, 40% { opacity: 1; } 100% { opacity: 0; } } /* неверная буква мелькает и гаснет */
 .typed .gap { background: var(--bad); opacity: .5; border-radius: 2px; }
 .typed .ghost { visibility: hidden; }
 /* Курсор — пустой строчный элемент с полоской через ::after: он не занимает места
@@ -192,6 +205,24 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 .lookup-close:hover { color: var(--text); }
 .lookup-list { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .lookup-list li { display: flex; flex-direction: column; gap: 1px; }
+
+/* Объяснение грамматики под фразой */
+.explain {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin-top: 4px; padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ok);
+  border-radius: 6px;
+  font-size: 14px; line-height: 1.5;
+}
+.explain-icon { font-size: 16px; line-height: 1.4; }
+.explain-body b { font-weight: 600; }
+.explain-body code {
+  font: 13px "SF Mono", Menlo, Consolas, monospace;
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--bg); border: 1px solid var(--line);
+}
 
 /* Слово по Ctrl */
 .text .look { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; }
@@ -280,6 +311,8 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 .opt:hover { border-color: var(--accent); }
 .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 
+.opt.disabled { opacity: .45; cursor: not-allowed; }
+.opt.disabled:hover { border-color: var(--line); }
 .opt input { position: absolute; opacity: 0; pointer-events: none; }
 .switch {
   flex: none; position: relative;
@@ -302,6 +335,23 @@ main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 .opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .opt-text b { font-size: 14px; font-weight: 600; }
 .opt-text small { font-size: 12px; color: var(--muted); line-height: 1.3; }
+/* Голос озвучки */
+.voice-card {
+  grid-column: span 2;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.voice-head { display: flex; align-items: center; justify-content: space-between; }
+.voice-head b { font-size: 14px; font-weight: 600; }
+.voice-card select { width: 100%; padding: 6px 8px; font-size: 13px; }
+.rate { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.rate input { flex: 1; accent-color: var(--accent); }
+.rate span { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+@media (max-width: 480px) { .voice-card { grid-column: auto; } }
+
 kbd {
   font: 11px "SF Mono", Menlo, Consolas, monospace;
   padding: 0 4px; border: 1px solid var(--line); border-radius: 3px;

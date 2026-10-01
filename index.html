@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Klava — английский через набор текста</title>
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
   <header class="top">
@@ -33,6 +33,7 @@
         <span id="translation" class="translation"></span>
         <button id="speak" class="icon-btn" title="Произнести (Ctrl+Space)">🔊</button>
       </div>
+      <div id="explain" class="explain" hidden></div>
       <div id="lookup" class="lookup" hidden></div>
       <div id="layout-warn" class="warn" hidden>Переключите раскладку на английскую</div>
     </section>
@@ -56,8 +57,12 @@
           <span class="opt-text"><b>Перевод</b><small>Показывать перевод слова или фразы</small></span>
         </label>
         <label class="opt">
-          <input type="checkbox" id="auto-speak"><span class="switch"></span>
-          <span class="opt-text"><b>Озвучка</b><small>Произносить каждую новую фразу</small></span>
+          <input type="checkbox" id="show-explain" checked><span class="switch"></span>
+          <span class="opt-text"><b>Объяснения</b><small>Почему здесь это время, конструкция или предлог</small></span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="auto-read" checked><span class="switch"></span>
+          <span class="opt-text"><b>Озвучка</b><small>Читать вслух каждую новую строку</small></span>
         </label>
         <label class="opt">
           <input type="checkbox" id="keep-errors"><span class="switch"></span>
@@ -68,9 +73,28 @@
           <span class="opt-text"><b>Хардкор</b><small>Backspace или Delete стирает всю строку</small></span>
         </label>
         <label class="opt">
+          <input type="checkbox" id="dictation"><span class="switch"></span>
+          <span class="opt-text"><b>Диктант</b><small>Фраза только звучит — наберите на слух, Enter — проверить</small></span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="translate-mode"><span class="switch"></span>
+          <span class="opt-text"><b>Перевод на английский</b><small>Видна только русская фраза — наберите её по-английски, Enter — проверить</small></span>
+        </label>
+        <label class="opt">
           <input type="checkbox" id="show-kb" checked><span class="switch"></span>
           <span class="opt-text"><b>Клавиатура</b><small>Показывать клавиатуру <kbd>Ctrl+K</kbd></small></span>
         </label>
+        <div id="voice-box" class="voice-card">
+          <div class="voice-head">
+            <b>Голос</b>
+            <button id="voice-test" class="pill-btn" title="Произнести текущую фразу">▶ Проверить</button>
+          </div>
+          <select id="voice" aria-label="Голос озвучки"></select>
+          <label class="rate">Скорость
+            <input type="range" id="rate" min="0.6" max="1.2" step="0.05">
+            <span id="rate-val"></span>
+          </label>
+        </div>
       </div>
     </footer>
   </main>
@@ -90,7 +114,7 @@
     </div>
   </div>
 
-  <script src="data.js?v=9"></script>
-  <script src="app.js?v=12"></script>
+  <script src="data.js?v=31"></script>
+  <script src="app.js?v=28"></script>
 </body>
 </html>

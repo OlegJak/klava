@@ -92,15 +92,15 @@ function makeChunks(lessonId) {
 
   if (lessonId === 'mine') {
     return shuffle(store.get('study', [])).slice(0, 20).map(([en, ru]) => ({
-      text: en, parts: [{ from: 0, to: en.length, tr: `${en} — ${ru || '?'}` }],
+      text: en, ru, parts: [{ from: 0, to: en.length, tr: `${en} — ${ru || '?'}` }],
     }));
   }
 
   // Фразы — по 10 за урок, слова — по 20, в каждой строке одна фраза или одно слово
   const lesson = LESSONS[lessonId];
   const isWords = lesson.type === 'words';
-  return shuffle(lesson.items).slice(0, isWords ? 20 : 10).map(([en, ru]) => ({
-    text: en, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru}` : ru }],
+  return shuffle(lesson.items).slice(0, isWords ? 20 : 10).map(([en, ru, note]) => ({
+    text: en, ru, note, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru}` : ru }],
   }));
 }
 
@@ -121,7 +121,12 @@ const state = {
   lastSpeed: 0,    // скорость последней набранной строки, зн/мин
   finished: false,
   lookup: null,    // слово, показанное по Ctrl: { word, from, to, tr, saved }
+  dict: null,      // диктант: { input, caret, checked, res }
+  edit: -1,        // курсор, сдвинутый стрелками внутрь набранного (-1 — в конце, на pos)
 };
+const newDict = () => ({ input: '', caret: 0, checked: false, res: null });
+const editPos = () => (state.edit < 0 ? state.pos : state.edit);
+state.dict = newDict();
 
 const store = {
   get(key, def) {
@@ -147,6 +152,8 @@ function startLesson() {
   state.lastSpeed = 0;
   state.finished = false;
   state.lookup = null;
+  state.dict = newDict();
+  state.edit = -1;
   $('result').hidden = true;
   const custom = state.lessonId === 'custom';
   $('custom-box').hidden = !custom || state.chunks.length > 0;
@@ -171,10 +178,12 @@ function render() {
     $('typed').innerHTML = '';
     $('translation').textContent = '';
     renderLookup();
+    renderExplain(null);
     return;
   }
 
   const t = chunk.text;
+  if (freeMode()) { renderDictation(chunk); renderLookup(); renderExplain(chunk); return; }
 
   // Строка ввода стоит над образцом символ в символ: пробелы на тех же местах,
   // а ненабранный остаток образца занимает место невидимым — поэтому переносы строк совпадают
@@ -185,10 +194,13 @@ function render() {
     return `<span class="${cls}">${escapeHtml(shown)}</span>`;
   };
   let typed = '';
+  const caretAt = editPos();
   for (let i = 0; i < state.pos; i++) {
+    if (i === caretAt && !state.finished) typed += '<span class="caret"></span>';
     typed += cell(state.chars[i] ?? t[i], i, state.missed.has(i) ? 'miss' : 'done');
   }
-  if (!state.finished) typed += '<span class="caret"></span>';
+  if (caretAt >= state.pos && !state.finished) typed += '<span class="caret"></span>';
+  // Неверная клавиша на миг появляется красной и сразу исчезает (см. showWrongKey) — в строку она не попадает
   let rest = state.pos;
   if (state.wrongKey && rest <= t.length) typed += cell(state.wrongKey, rest++, 'wrong');
   typed += `<span class="ghost">${escapeHtml(t.slice(rest))}</span>`;
@@ -211,6 +223,172 @@ function render() {
   const part = chunk.parts.find((p) => state.pos >= p.from && state.pos <= p.to) || chunk.parts[0];
   $('translation').textContent = $('show-tr').checked && part ? part.tr : '';
   renderLookup();
+  renderExplain(chunk);
+}
+
+// Объяснение под фразой: почему это время, конструкция, предлог.
+// В уроке у фразы третий элемент — ключ из NOTES или готовый текст; разметка **жирный** и `формула`.
+// В «Диктанте» и «Переводе» показываем только после проверки, чтобы не подсказать ответ
+function renderExplain(chunk) {
+  const el = $('explain');
+  const note = chunk && chunk.note && (NOTES[chunk.note] || chunk.note);
+  const show = Boolean(note) && $('show-explain').checked && !textHidden();
+  el.hidden = !show;
+  if (!show) return;
+  const html = escapeHtml(note).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>');
+  el.innerHTML = `<span class="explain-icon">📘</span><div class="explain-body">${html}</div>`;
+}
+
+// ---------- Диктант ----------
+// Фраза только звучит, её нужно набрать на слух и нажать Enter.
+// Потом снизу появляется правильная строка: чего не хватает — выделено, лишнее — зачёркнуто
+const dictation = () => $('dictation').checked;
+// «Перевод»: видна только русская фраза, её нужно набрать по-английски — проверка та же, что в диктанте
+const translateMode = () => $('translate-mode').checked;
+const freeMode = () => dictation() || translateMode();
+
+// Русский вариант строки; для «Своего текста» переводим через Google и запоминаем
+function chunkRu(chunk) {
+  if (chunk.ru !== undefined) return chunk.ru;
+  chunk.ru = null; // перевод загружается
+  translate(chunk.text).then((ru) => { chunk.ru = ru || ''; if (state.chunks[state.index] === chunk) render(); });
+  return null;
+}
+
+// Сравнение без учёта регистра, знаков препинания и лишних пробелов:
+// на слух запятые и заглавные буквы не различить
+function compareDictation(input, target) {
+  const sig = (s) => {
+    const out = [];
+    let space = true;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (/[A-Za-z0-9']/.test(c)) { out.push({ c: c.toLowerCase(), i }); space = false; }
+      else if (/\s/.test(c) && !space) { out.push({ c: ' ', i }); space = true; }
+    }
+    if (out.length && out[out.length - 1].c === ' ') out.pop();
+    return out;
+  };
+  const a = sig(input), b = sig(target);
+  // Наибольшая общая подпоследовательность
+  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      dp[i][j] = a[i].c === b[j].c ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const inCls = [...input].map(() => 'neutral');
+  const tCls = [...target].map((c) => (/[A-Za-z0-9']/.test(c) ? 'missing' : 'punct'));
+  a.forEach((x) => { inCls[x.i] = 'extra'; });
+  b.forEach((x) => { if (x.c === ' ') tCls[x.i] = 'missing'; });
+  let i = 0, j = 0, matched = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i].c === b[j].c) { inCls[a[i].i] = 'done'; tCls[b[j].i] = 'ok'; matched++; i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
+    else j++;
+  }
+  // Ошибки считаем по словам: слово образца, в котором чего-то не хватает,
+  // плюс целиком лишние слова во вводе
+  const words = (s, bad) => [...s.matchAll(/\S+/g)].filter((m) => bad(m.index, m.index + m[0].length)).length;
+  const errs = words(target, (from, to) => tCls.slice(from, to).includes('missing')) +
+    words(input, (from, to) => { const c = inCls.slice(from, to); return c.includes('extra') && !c.includes('done'); });
+  return { inCls, tCls, matched, errs };
+}
+
+function renderDictation(chunk) {
+  const d = state.dict;
+  const t = chunk.text;
+  const spans = (s, cls) => {
+    let html = '';
+    for (let i = 0; i < s.length;) {
+      let j = i + 1;
+      while (j < s.length && cls(j) === cls(i)) j++;
+      html += `<span class="${cls(i)}">${escapeHtml(s.slice(i, j))}</span>`;
+      i = j;
+    }
+    return html;
+  };
+
+  if (!d.checked) {
+    $('typed').innerHTML = escapeHtml(d.input.slice(0, d.caret)) + '<span class="caret"></span>' + escapeHtml(d.input.slice(d.caret));
+    if (translateMode()) {
+      const ru = chunkRu(chunk);
+      $('text').innerHTML = `<span class="tr-prompt">${ru ? escapeHtml(ru) : ru === null ? '…' : 'перевод недоступен'}</span>`;
+      $('translation').innerHTML = '<span class="dict-hint">Наберите по-английски · <kbd>Enter</kbd> — проверить</span>';
+    } else {
+      $('text').innerHTML = '<span class="dict-hint">🎧 Слушайте и печатайте · <kbd>Enter</kbd> — проверить · <kbd>Ctrl+Space</kbd> — повторить</span>';
+      $('translation').textContent = '';
+    }
+    return;
+  }
+
+  const { inCls, tCls, errs } = d.res;
+  const lk = state.lookup;
+  $('typed').innerHTML = spans(d.input, (i) => inCls[i]);
+  $('text').innerHTML = spans(t, (i) => tCls[i] + (lk && i >= lk.from && i < lk.to ? ' look' : '')) +
+    '<span class="end-hint" title="Нажмите Enter или пробел">␣</span>';
+  const verdict = errs
+    ? `<b class="dict-bad">${plural(errs, 'ошибка', 'ошибки', 'ошибок')}</b>`
+    : '<b class="dict-ok">✓ Без ошибок</b>';
+  // В режиме «Перевод» рядом с итогом — русская фраза, которую переводили
+  const trText = translateMode() ? chunkRu(chunk) : $('show-tr').checked && chunk.parts[0] ? chunk.parts[0].tr : '';
+  $('translation').innerHTML = verdict + (trText ? ` · ${escapeHtml(trText)}` : '');
+}
+
+function onDictationKey(e, chunk) {
+  const d = state.dict;
+  // После проверки Enter или пробел — следующая фраза
+  if (d.checked) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nextChunk(); render(); }
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (d.input.trim()) checkDictation(chunk);
+    return;
+  }
+  // Стрелки, Home и End двигают курсор по набранному
+  const moves = { ArrowLeft: d.caret - 1, ArrowRight: d.caret + 1, Home: 0, End: d.input.length };
+  if (e.key in moves) {
+    e.preventDefault();
+    d.caret = Math.max(0, Math.min(d.input.length, moves[e.key]));
+    render();
+    return;
+  }
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    e.preventDefault();
+    if ($('hardcore').checked) { d.input = ''; d.caret = 0; }
+    else if (e.key === 'Backspace' && d.caret > 0) {
+      d.input = d.input.slice(0, d.caret - 1) + d.input.slice(d.caret);
+      d.caret--;
+    } else if (e.key === 'Delete') d.input = d.input.slice(0, d.caret) + d.input.slice(d.caret + 1);
+    render();
+    return;
+  }
+  if (e.key.length !== 1) return;
+  e.preventDefault();
+  $('layout-warn').hidden = !/[а-яё]/i.test(e.key);
+  if (!state.lineStart) state.lineStart = Date.now();
+  d.input = d.input.slice(0, d.caret) + e.key + d.input.slice(d.caret);
+  d.caret++;
+  render();
+}
+
+function checkDictation(chunk) {
+  const d = state.dict;
+  d.res = compareDictation(d.input, chunk.text);
+  d.checked = true;
+  state.errors += d.res.errs;
+  state.typed += d.res.matched;
+  if (state.lineStart) {
+    const ms = Date.now() - state.lineStart;
+    state.lessonChars += d.res.matched + 1;
+    state.lessonMs += ms;
+    state.lastSpeed = speedOf(d.res.matched + 1, ms) || state.lastSpeed;
+    state.lineStart = 0; // строка уже учтена, finishLine её пропустит
+  }
+  renderStats();
+  render();
 }
 
 function accuracy() {
@@ -255,7 +433,9 @@ function onKeyDown(e) {
 
   const chunk = state.chunks[state.index];
   if (!chunk || state.finished) return;
+  if (freeMode()) { onDictationKey(e, chunk); return; }
   const keepErrors = $('keep-errors').checked;
+  if (keepErrors && onEditKey(e, chunk)) return;
   const atEnd = state.pos >= chunk.text.length;
 
   // Хардкор: Backspace или Delete стирает всю строку (ошибки остаются в счётчике)
@@ -266,6 +446,7 @@ function onKeyDown(e) {
     state.chars = [];
     state.missed = new Set();
     state.wrongKey = '';
+    state.edit = -1;
     render();
     return;
   }
@@ -302,7 +483,7 @@ function onKeyDown(e) {
     if (e.key === ' ') { goNextLine(chunk, e); return; }
     else {
       state.errors++;
-      state.wrongKey = e.key;
+      showWrongKey(e.key);
       flash(keyByCode[e.code], 'wrong');
     }
     render();
@@ -327,7 +508,7 @@ function onKeyDown(e) {
   if (e.key !== chunk.text[state.pos]) {
     state.errors++;
     state.missed.add(state.pos);
-    state.wrongKey = e.key;
+    showWrongKey(e.key);
     flash(keyByCode[e.code], 'wrong');
     render();
     return;
@@ -338,6 +519,61 @@ function onKeyDown(e) {
   state.typed++;
   state.pos++;
   render();
+}
+
+// Стрелки в режиме «Не исправлять ошибки»: курсор ходит по набранному, буква под ним
+// заменяется новой, Backspace/Delete удаляют символ до/после курсора. Возвращает true, если клавиша обработана
+function onEditKey(e, chunk) {
+  const t = chunk.text;
+  const setEdit = (p) => { state.edit = p >= state.pos ? -1 : Math.max(0, p); };
+  const moves = { ArrowLeft: editPos() - 1, ArrowRight: editPos() + 1, Home: 0, End: state.pos };
+  if (e.key in moves) { e.preventDefault(); setEdit(moves[e.key]); render(); return true; }
+  if (state.edit < 0) return false; // курсор в конце — обычный набор
+
+  // Пересчитать верные символы строки и отметки ошибок после правки
+  const correct = () => state.chars.slice(0, state.pos).filter((c, i) => c === t[i]).length;
+  const before = correct();
+  const apply = () => {
+    state.typed += correct() - before;
+    state.missed = new Set(state.chars.map((c, i) => (c !== t[i] ? i : -1)).filter((i) => i >= 0));
+    state.wrongKey = '';
+    render();
+  };
+
+  const p = state.edit;
+  if (e.key === 'Backspace') {
+    e.preventDefault();
+    if (p === 0) return true;
+    state.chars.splice(p - 1, 1);
+    state.pos--;
+    setEdit(p - 1);
+    apply();
+    return true;
+  }
+  if (e.key === 'Delete') {
+    e.preventDefault();
+    state.chars.splice(p, 1);
+    state.pos--;
+    setEdit(p);
+    apply();
+    return true;
+  }
+  if (e.key.length !== 1) return false;
+  e.preventDefault();
+  if (!state.lineStart) state.lineStart = Date.now();
+  state.chars[p] = e.key;
+  if (e.key !== t[p]) { state.errors++; flash(keyByCode[e.code], 'wrong'); }
+  setEdit(p + 1);
+  apply();
+  return true;
+}
+
+// Неверная буква мелькает красной на месте курсора и через долю секунды исчезает
+let wrongTimer = 0;
+function showWrongKey(key) {
+  state.wrongKey = key;
+  clearTimeout(wrongTimer);
+  wrongTimer = setTimeout(() => { state.wrongKey = ''; render(); }, 300);
 }
 
 // Неисправленные ошибки в строке (бывают только в режиме «Не исправлять ошибки»)
@@ -375,6 +611,8 @@ function nextChunk() {
   state.missed = new Set();
   state.chars = [];
   state.lookup = null;
+  state.dict = newDict();
+  state.edit = -1;
   if (state.index >= state.chunks.length) finish();
   else maybeSpeak();
   renderStats();
@@ -403,11 +641,13 @@ const dict = {};      // перевод слов из уроков: слово -
 const trCache = {};   // текст -> Promise с переводом
 
 function buildDict() {
-  for (const lesson of Object.values(LESSONS)) {
+  for (const [id, lesson] of Object.entries(LESSONS)) {
     if (lesson.type !== 'words') continue;
     for (const [en, ru] of lesson.items) {
       if (!en.includes(' ')) dict[en] = ru;
-      else for (const form of en.split(' ')) dict[form] ??= `${ru} (${en})`; // формы неправильных глаголов
+      // формы неправильных глаголов: «went» → «идти (go went gone)»
+      else if (id === 'verbs') for (const form of en.split(' ')) dict[form] ??= `${ru} (${en})`;
+      else dict[en.toLowerCase()] = ru; // устойчивые выражения — целиком: «make sense» → «иметь смысл»
     }
   }
 }
@@ -490,9 +730,12 @@ async function findOnlineExample(word, skip) {
   return null;
 }
 
+// В диктанте до проверки фраза скрыта — подсказывать слова нельзя
+const textHidden = () => freeMode() && !state.dict.checked;
+
 function onCtrl() {
   const chunk = state.chunks[state.index];
-  if (!chunk) return;
+  if (!chunk || textHidden()) return;
   const w = wordAt(chunk.text, state.pos);
   if (!w) return;
   // Повторный Ctrl на том же слове — сохранить; курсор ушёл на другое слово — показать его
@@ -577,7 +820,7 @@ function textRange(root, from, to) {
 function wordUnderPointer(x, y) {
   const caret = document.caretRangeFromPoint?.(x, y);
   const chunk = state.chunks[state.index];
-  if (!caret || !chunk || !$('text').contains(caret.startContainer)) return null;
+  if (!caret || !chunk || textHidden() || !$('text').contains(caret.startContainer)) return null;
   const t = chunk.text;
   const off = textOffset($('text'), caret.startContainer, caret.startOffset);
   const isW = (c) => /[A-Za-z']/.test(c || '');
@@ -597,7 +840,7 @@ function wordUnderPointer(x, y) {
 function selectedTarget() {
   const sel = getSelection();
   if (!sel.rangeCount || sel.isCollapsed) return null;
-  const inside = (node) => node && ($('text').contains(node) || $('lookup').contains(node));
+  const inside = (node) => node && (($('text').contains(node) && !textHidden()) || $('lookup').contains(node));
   if (!inside(sel.anchorNode) || !inside(sel.focusNode)) return null;
   const text = cleanPhrase(sel.toString());
   if (!text) return null;
@@ -791,20 +1034,103 @@ const updateMineOption = () => renderMenu();
 // ---------- Озвучка ----------
 function speak() {
   const chunk = state.chunks[state.index];
-  if (chunk) speakText(chunk.text);
+  if (chunk && !translateMode()) speakText(chunk.text); // в «Переводе» озвучка выключена
+}
+
+// В режиме «Перевод» озвучка выключена целиком: переключатель «Озвучка» неактивен
+// и показан выключенным (сохранённое значение не трогаем), кнопка 🔊 скрыта
+function syncVoiceUi() {
+  const tr = translateMode();
+  const box = $('auto-read');
+  box.disabled = tr;
+  box.checked = tr ? false : store.get('auto-read', true);
+  box.closest('.opt').classList.toggle('disabled', tr);
+  $('speak').hidden = tr;
+}
+
+// Английские голоса браузера. По умолчанию берём самый живой:
+// «Natural»/«Neural»/«Online» (Edge, Windows 11) → голоса Google (Chrome) → остальные
+let voices = [];
+
+function voiceScore(v) {
+  let s = 0;
+  if (/natural|neural|online|premium|enhanced/i.test(v.name)) s += 4;
+  if (/google/i.test(v.name)) s += 3;
+  if (/^en[-_](US|GB)/i.test(v.lang)) s += 1;
+  if (!v.localService) s += 1;
+  return s;
+}
+
+function currentVoice() {
+  return voices.find((v) => v.name === store.get('voice', '')) || voices[0] || null;
+}
+
+function loadVoices() {
+  voices = speechSynthesis.getVoices()
+    .filter((v) => /^en[-_]/i.test(v.lang))
+    .sort((a, b) => voiceScore(b) - voiceScore(a) || a.name.localeCompare(b.name));
+  const select = $('voice');
+  const cur = currentVoice();
+  select.innerHTML = voices.length
+    ? voices.map((v) => {
+      const name = v.name.replace(/^(Microsoft|Google)\s+/, '').replace(/\s*-\s*English.*$/, '');
+      return `<option value="${escapeHtml(v.name)}">${escapeHtml(name)} · ${v.lang.replace('_', '-')}</option>`;
+    }).join('')
+    : '<option>Голоса не найдены</option>';
+  if (cur) select.value = cur.name;
 }
 
 function speakText(text) {
   if (!('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'en-US';
-  u.rate = 0.9;
-  speechSynthesis.speak(u);
+  const voice = currentVoice();
+  if (voice) u.voice = voice;
+  u.lang = voice ? voice.lang : 'en-US';
+  u.rate = store.get('rate', 0.9);
+  // Chrome иногда «проглатывает» фразу, если speak вызвать сразу после cancel
+  setTimeout(() => speechSynthesis.speak(u), 60);
 }
 
+function initVoice() {
+  if (!('speechSynthesis' in window)) { $('voice-box').hidden = true; return; }
+  loadVoices();
+  speechSynthesis.addEventListener('voiceschanged', loadVoices); // в Chrome голоса приходят не сразу
+
+  const rate = $('rate');
+  const showRate = () => { $('rate-val').textContent = `${Number(rate.value).toFixed(2).replace(/0$/, '')}×`; };
+  rate.value = store.get('rate', 0.9);
+  showRate();
+  rate.addEventListener('input', () => { store.set('rate', Number(rate.value)); showRate(); });
+  rate.addEventListener('change', () => { rate.blur(); speakText('Hello! This is how I sound.'); });
+
+  $('voice').addEventListener('change', (e) => {
+    store.set('voice', e.target.value);
+    e.target.blur();
+    speakText('Hello! This is how I sound.');
+  });
+  $('voice-test').addEventListener('click', (e) => {
+    e.currentTarget.blur();
+    const chunk = state.chunks[state.index];
+    speakText(chunk ? chunk.text : 'Hello! This is how I sound.');
+  });
+}
+
+// Автоматически читать новую строку. Сразу после открытия страницы браузер не даёт
+// говорить, пока человек ничего не нажал, — тогда первая строка прочитается по первому нажатию
+let speakPending = false;
+
 function maybeSpeak() {
-  if ($('auto-speak').checked) speak();
+  if (translateMode()) return; // в «Переводе» озвучка выдала бы ответ — фраза звучит после проверки
+  if (!$('auto-read').checked && !dictation()) return; // в диктанте фраза звучит всегда
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) speakPending = true;
+  else speak();
+}
+
+function speakIfPending() {
+  if (!speakPending) return;
+  speakPending = false;
+  if (!translateMode() && ($('auto-read').checked || dictation())) speak();
 }
 
 // ---------- Тема и настройки ----------
@@ -823,6 +1149,7 @@ function init() {
   buildKeyboard();
   buildDict();
   initWordTools();
+  initVoice();
 
   state.lessonId = store.get('lesson', 'a1');
   if (!lessonInfo(state.lessonId)) state.lessonId = 'a1';
@@ -840,7 +1167,7 @@ function init() {
   $('again').addEventListener('click', startLesson);
   $('speak').addEventListener('click', (e) => { e.currentTarget.blur(); speak(); });
 
-  for (const id of ['show-tr', 'auto-speak', 'keep-errors', 'hardcore']) {
+  for (const id of ['show-tr', 'show-explain', 'auto-read', 'keep-errors', 'hardcore', 'dictation', 'translate-mode']) {
     const box = $(id);
     box.checked = store.get(id, box.checked);
     box.addEventListener('change', () => { store.set(id, box.checked); box.blur(); render(); });
@@ -865,6 +1192,47 @@ function init() {
     if (!isFormField(e.target)) onCtrl();
   });
   window.addEventListener('blur', () => { ctrlAlone = false; }); // Ctrl+Tab и т. п.
+
+  // Клик в поле ввода ставит курсор в это место (в диктанте и в режиме «Не исправлять ошибки»)
+  $('typed').addEventListener('mousedown', (e) => {
+    const chunk = state.chunks[state.index];
+    const caret = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    if (!chunk || state.finished || !caret || !$('typed').contains(caret.startContainer)) return;
+    const off = textOffset($('typed'), caret.startContainer, caret.startOffset);
+    if (off < 0) return;
+    if (freeMode() && !state.dict.checked) {
+      state.dict.caret = Math.min(off, state.dict.input.length);
+    } else if (!freeMode() && $('keep-errors').checked) {
+      state.edit = off >= state.pos ? -1 : off;
+    } else return;
+    e.preventDefault();
+    render();
+  });
+
+  // Первое нажатие клавиши или клик «разрешает» звук — дочитываем отложенную строку
+  document.addEventListener('keydown', speakIfPending, true);
+  document.addEventListener('pointerdown', speakIfPending, true);
+  // Включили озвучку — сразу читаем текущую строку
+  $('auto-read').addEventListener('change', (e) => { if (e.target.checked) speak(); });
+  // Диктант: начинаем текущую фразу заново и сразу её произносим
+  // «Диктант» и «Перевод» — взаимоисключающие режимы: включили один — другой выключается.
+  // Текущую фразу начинаем заново; в диктанте сразу её произносим
+  const modes = ['dictation', 'translate-mode'];
+  if (dictation() && translateMode()) { $('translate-mode').checked = false; store.set('translate-mode', false); }
+  for (const id of modes) {
+    $(id).addEventListener('change', (e) => {
+      if (e.target.checked) {
+        for (const other of modes) if (other !== id) { $(other).checked = false; store.set(other, false); }
+      }
+      state.dict = newDict();
+      state.lookup = null;
+      state.lineStart = 0;
+      syncVoiceUi();
+      render();
+      if (e.target.checked && id === 'dictation') speak();
+    });
+  }
+  syncVoiceUi();
 
   startLesson();
 }
