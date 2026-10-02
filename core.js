@@ -102,6 +102,12 @@
         return true;
       },
 
+      // Недавно открытые модули для главной: id, последний открытый — первым
+      recent: () => storage.get('recent', []),
+      markOpened(id) {
+        storage.set('recent', [id, ...storage.get('recent', []).filter((r) => r !== id)].slice(0, 6));
+      },
+
       settings: { get: storage.get, set: storage.set },
     };
   }

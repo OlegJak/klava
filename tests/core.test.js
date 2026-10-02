@@ -158,6 +158,15 @@ test('настройки читаются и пишутся через хран�
   assert.equal(makeCore({ storage }).settings.get('rate', 0.9), 1.1);
 });
 
+test('недавние модули: последний открытый первым, без повторов, не больше шести', () => {
+  const storage = memoryStorage();
+  const core = makeCore({ storage });
+  assert.deepEqual(core.recent(), []);
+  for (const id of ['a', 'b', 'c', 'a', 'd', 'e', 'f', 'g']) core.markOpened(id);
+  assert.deepEqual(core.recent(), ['g', 'f', 'e', 'd', 'a', 'c']);
+  assert.deepEqual(makeCore({ storage }).recent(), ['g', 'f', 'e', 'd', 'a', 'c']);
+});
+
 // ---------- Нормализация и диктант ----------
 
 test('нормализация заменяет «умные» знаки и убирает лишнее', () => {

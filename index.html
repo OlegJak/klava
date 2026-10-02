@@ -4,18 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Klava — английский через набор текста</title>
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
+  <!-- Экраны-страницы: главная, папка, модуль. Содержимое рисует app.js по адресу после # -->
+  <div id="page" class="page-screen" hidden>
+    <header class="top">
+      <a href="#/" class="brand">⌨️ Klava</a>
+      <nav id="crumbs" class="crumbs"></nav>
+      <button class="pill-btn theme-btn">Тёмная тема</button>
+    </header>
+    <main id="page-body" class="page"></main>
+  </div>
+
+  <!-- Тренажёр набора -->
+  <div id="trainer" hidden>
   <header class="top">
-    <div class="lesson-picker">
-      <button id="lesson-btn" class="lesson-btn" aria-haspopup="true" aria-expanded="false">
-        <span id="lesson-icon" class="lesson-icon"></span>
-        <span class="lesson-name"><small id="lesson-group"></small><b id="lesson-title"></b></span>
-        <span class="chev">▾</span>
-      </button>
-      <div id="lesson-menu" class="lesson-menu" hidden></div>
-    </div>
+    <a id="back" class="lesson-btn" href="#/" title="К модулю">
+      <span class="back-arrow">←</span>
+      <span id="lesson-icon" class="lesson-icon"></span>
+      <span class="lesson-name"><small id="lesson-group"></small><b id="lesson-title"></b></span>
+    </a>
     <button id="restart" class="icon-btn" title="Начать заново (Esc)">↻</button>
     <div class="stats">
       <span title="Скорость последней набранной строки, знаков в минуту"><b id="cpm">—</b> зн/мин</span>
@@ -49,7 +58,7 @@
       <div class="options-head">
         <h3>Настройки</h3>
         <span id="best" class="best"></span>
-        <button id="theme" class="pill-btn">Тёмная тема</button>
+        <button class="pill-btn theme-btn">Тёмная тема</button>
       </div>
       <div class="options">
         <label class="opt">
@@ -98,6 +107,7 @@
       </div>
     </footer>
   </main>
+  </div>
 
   <div id="word-tools" class="word-tools" hidden>
     <b class="wt-text"></b>
@@ -115,7 +125,7 @@
   </div>
 
   <script src="data.js?v=31"></script>
-  <script src="core.js?v=1"></script>
-  <script src="app.js?v=29"></script>
+  <script src="core.js?v=2"></script>
+  <script src="app.js?v=30"></script>
 </body>
 </html>

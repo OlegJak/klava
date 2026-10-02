@@ -369,8 +369,7 @@ function onKeyDown(e) {
   ctrlAlone = false;
   if (isFormField(e.target)) return;
 
-  // Пока открыто меню уроков, набор не идёт; Esc закрывает меню
-  if (menuOpen()) { if (e.key === 'Escape') toggleMenu(false); return; }
+  if (!onTrainer) return; // набор идёт только в тренажёре
   if (e.key === 'Escape') { startLesson(); return; }
   if (e.ctrlKey && e.code === 'Space') { e.preventDefault(); speak(); return; }
   if (e.ctrlKey && e.code === 'KeyK') { e.preventDefault(); toggleKeyboard(!$('show-kb').checked); return; }
@@ -682,7 +681,6 @@ function onCtrl() {
 // Добавить слово или фразу в «Мои слова» вместе с переводом
 async function addToStudy(en) {
   core.addMyWord(en, await translate(en));
-  updateMineOption();
 }
 
 function saveLookup(lk) {
@@ -821,7 +819,7 @@ function initWordTools() {
   const inTools = (x, y) => { const r = el.getBoundingClientRect(); return !el.hidden && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
 
   document.addEventListener('mousemove', (e) => {
-    if (tools.target?.selected || menuOpen()) return;
+    if (tools.target?.selected || !onTrainer) return;
     const { clientX: x, clientY: y } = e;
     if (inTools(x, y)) { clearTimeout(tools.hideTimer); return; }
     const w = wordUnderPointer(x, y);
@@ -896,13 +894,16 @@ function renderExampleList(lk) {
   return `<div class="lookup-body">${head}${body}</div>`;
 }
 
-// ---------- Меню выбора урока ----------
+// ---------- Экраны: главная, папка, модуль, тренажёр ----------
+// Адреса: #/ — главная, #/folder/<id> — папка, #/module/<id> — модуль,
+// #/module/<id>/type — набор по модулю, #/custom — «Свой текст»
 const SPECIAL = {
   mine: { title: 'Мои слова', group: 'own', icon: '⭐' },
   custom: { title: 'Свой текст', group: 'own', icon: '📝' },
 };
-const MENU_GROUPS = [...core.folders(), { id: 'own', title: 'Своё' }];
-// Название, значок и группа меню — для встроенного модуля или особого урока
+const FOLDERS = [...core.folders(), { id: 'own', title: 'Своё' }];
+const folderOf = (id) => FOLDERS.find((f) => f.id === id);
+// Название, значок и папка — для встроенного модуля или особого урока
 const lessonInfo = (id) => {
   const m = core.module(id);
   return m ? { title: m.title, icon: m.icon, group: m.folderId } : SPECIAL[id];
@@ -921,50 +922,110 @@ function lessonCount(id) {
   return m.kind === 'words' ? plural(m.cards.length, 'слово', 'слова', 'слов') : plural(m.cards.length, 'фраза', 'фразы', 'фраз');
 }
 
-function renderMenu() {
-  const ids = [...core.modules().map((m) => m.id), ...Object.keys(SPECIAL)];
-  $('lesson-menu').innerHTML = MENU_GROUPS.map((g) => {
-    const items = ids.filter((id) => lessonInfo(id).group === g.id).map((id) => {
-      const l = lessonInfo(id);
-      const cur = id === state.lessonId ? ' current' : '';
-      return `<button class="menu-item${cur}" data-id="${id}"><span class="menu-icon">${l.icon}</span>` +
-        `<span class="menu-text"><b>${escapeHtml(l.title)}</b><small>${lessonCount(id)}</small></span></button>`;
-    }).join('');
-    return `<section class="menu-group"><h4>${g.title}</h4>${items}</section>`;
-  }).join('');
+// Уроки папки: встроенные модули из ядра, в «Своём» — «Мои слова» и «Свой текст»
+const folderLessons = (folderId) => (folderId === 'own' ? Object.keys(SPECIAL) : core.modules(folderId).map((m) => m.id));
+// Модуль открывается своей страницей, «Свой текст» — сразу тренажёром
+const lessonHref = (id) => (id === 'custom' ? '#/custom' : `#/module/${id}`);
+const lessonCards = (id) => (id === 'mine' ? core.myWords() : core.module(id).cards);
 
-  const l = lessonInfo(state.lessonId);
+const tile = (href, icon, title, sub) =>
+  `<a class="tile" href="${href}"><span class="tile-icon">${icon}</span>` +
+  `<span class="tile-text"><b>${escapeHtml(title)}</b><small>${sub}</small></span></a>`;
+const lessonTile = (id) => { const l = lessonInfo(id); return tile(lessonHref(id), l.icon, l.title, lessonCount(id)); };
+const folderTile = (f) => {
+  const ids = folderLessons(f.id);
+  const icons = ids.slice(0, 4).map((id) => lessonInfo(id).icon).join(' ');
+  return tile(`#/folder/${f.id}`, '📁', f.title, `${plural(ids.length, 'модуль', 'модуля', 'модулей')} · ${icons}`);
+};
+const tilesSection = (title, tiles) =>
+  `<section class="tiles-section"><h2>${escapeHtml(title)}</h2><div class="tiles">${tiles.join('')}</div></section>`;
+
+function renderHome() {
+  const recent = core.recent().filter((id) => lessonInfo(id));
+  return (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
+    tilesSection('Папки', FOLDERS.map(folderTile));
+}
+
+function renderFolder(folderId) {
+  return tilesSection(folderOf(folderId).title, folderLessons(folderId).map(lessonTile));
+}
+
+function renderModule(id) {
+  const l = lessonInfo(id);
+  const cards = lessonCards(id);
+  const list = cards.length
+    ? `<ol class="card-list">${cards.map((c) =>
+      `<li><span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
+    : '<p class="empty">Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.</p>';
+  return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
+    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div></section>` +
+    '<div class="modes">' +
+    `<a class="mode-btn" href="#/module/${id}/type"><span class="mode-icon">⌨️</span>` +
+    '<span class="tile-text"><b>Набор</b><small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span></a>' +
+    `</div>${list}`;
+}
+
+// Хлебные крошки над страницей: папка › модуль
+function renderCrumbs(items) {
+  $('crumbs').innerHTML = items.map(([href, title], i) =>
+    (i ? '<span class="crumb-sep">›</span>' : '') +
+    (href ? `<a href="${href}">${escapeHtml(title)}</a>` : `<span>${escapeHtml(title)}</span>`)).join('');
+}
+
+function parseRoute() {
+  const [screen, id, mode] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+  if (screen === 'folder' && folderOf(id)) return { screen, id };
+  if (screen === 'module' && id !== 'custom' && lessonInfo(id)) return { screen: mode === 'type' ? 'trainer' : 'module', id };
+  if (screen === 'custom') return { screen: 'trainer', id: 'custom' };
+  return { screen: 'home' };
+}
+
+let onTrainer = false; // открыт ли тренажёр — иначе клавиши набора не обрабатываются
+
+function route() {
+  const r = parseRoute();
+  if (r.screen === 'home' && location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
+  if (onTrainer) leaveTrainer();
+  onTrainer = r.screen === 'trainer';
+  $('trainer').hidden = !onTrainer;
+  $('page').hidden = onTrainer;
+  scrollTo(0, 0);
+  if (onTrainer) { openTrainer(r.id); return; }
+
+  if (r.screen === 'module') {
+    core.markOpened(r.id);
+    const l = lessonInfo(r.id);
+    renderCrumbs([[`#/folder/${l.group}`, folderOf(l.group).title], [null, l.title]]);
+    $('page-body').innerHTML = renderModule(r.id);
+  } else if (r.screen === 'folder') {
+    renderCrumbs([[null, folderOf(r.id).title]]);
+    $('page-body').innerHTML = renderFolder(r.id);
+  } else {
+    renderCrumbs([]);
+    $('page-body').innerHTML = renderHome();
+  }
+}
+
+function openTrainer(id) {
+  state.lessonId = id;
+  if (id !== 'custom') core.markOpened(id);
+  const l = lessonInfo(id);
   $('lesson-icon').textContent = l.icon;
-  $('lesson-group').textContent = MENU_GROUPS.find((g) => g.id === l.group).title;
+  $('lesson-group').textContent = folderOf(l.group).title;
   $('lesson-title').textContent = l.title;
+  $('back').href = id === 'custom' ? '#/' : `#/module/${id}`;
+  $('back').title = id === 'custom' ? 'На главную' : 'К модулю';
+  startLesson();
 }
 
-const menuOpen = () => !$('lesson-menu').hidden;
-function toggleMenu(open) {
-  $('lesson-menu').hidden = !open;
-  $('lesson-btn').classList.toggle('open', open);
-  $('lesson-btn').setAttribute('aria-expanded', open);
+// Ушли из тренажёра: замолчать и убрать всплывающее
+function leaveTrainer() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  speakPending = false;
+  $('result').hidden = true;
+  state.lookup = null;
+  hideTools();
 }
-
-function initMenu() {
-  $('lesson-btn').addEventListener('click', (e) => { e.currentTarget.blur(); toggleMenu(!menuOpen()); });
-  $('lesson-menu').addEventListener('click', (e) => {
-    const item = e.target.closest('.menu-item');
-    if (!item) return;
-    state.lessonId = item.dataset.id;
-    store.set('lesson', state.lessonId);
-    item.blur();
-    toggleMenu(false);
-    renderMenu();
-    startLesson();
-  });
-  document.addEventListener('mousedown', (e) => {
-    if (menuOpen() && !e.target.closest('.lesson-picker')) toggleMenu(false);
-  });
-}
-
-// Число «Мои слова» в меню меняется, когда слово добавлено
-const updateMineOption = () => renderMenu();
 
 // ---------- Озвучка ----------
 function speak() {
@@ -1077,18 +1138,13 @@ function toggleKeyboard(show) {
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  $('theme').textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  for (const btn of document.querySelectorAll('.theme-btn')) btn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
 }
 
 function init() {
   buildKeyboard();
   initWordTools();
   initVoice();
-
-  state.lessonId = store.get('lesson', 'a1');
-  if (!lessonInfo(state.lessonId)) state.lessonId = 'a1';
-  initMenu();
-  renderMenu();
 
   $('custom-text').value = store.get('customText', '');
   $('custom-start').addEventListener('click', () => {
@@ -1112,18 +1168,20 @@ function init() {
 
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   applyTheme(store.get('theme', prefersDark ? 'dark' : 'light'));
-  $('theme').addEventListener('click', (e) => {
-    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    store.set('theme', next);
-    applyTheme(next);
-    e.currentTarget.blur();
-  });
+  for (const btn of document.querySelectorAll('.theme-btn')) {
+    btn.addEventListener('click', (e) => {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      store.set('theme', next);
+      applyTheme(next);
+      e.currentTarget.blur();
+    });
+  }
 
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', (e) => {
     if (e.key !== 'Control' || !ctrlAlone) return;
     ctrlAlone = false;
-    if (!isFormField(e.target)) onCtrl();
+    if (onTrainer && !isFormField(e.target)) onCtrl();
   });
   window.addEventListener('blur', () => { ctrlAlone = false; }); // Ctrl+Tab и т. п.
 
@@ -1168,7 +1226,8 @@ function init() {
   }
   syncVoiceUi();
 
-  startLesson();
+  addEventListener('hashchange', route);
+  route();
 }
 
 init();
