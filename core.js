@@ -85,14 +85,30 @@
     return card;
   }
 
-  // lessons, groups, notes — LESSONS, GROUPS и NOTES из data.js;
-  // newId — источник уникальных id для своих папок, модулей и карточек
   // Системная папка «Своё»: в ней «Мои слова»; её нельзя переименовать или удалить, но можно класть туда модули
   const OWN_FOLDER = { id: 'own', title: 'Своё' };
   // «Мои слова» — свой модуль с постоянным id: туда «+ В словарь» складывает слова. Удалить его нельзя
   const MINE = 'mine';
 
-  function createCore({ lessons, groups, notes, storage, newId }) {
+  // ---------- Повторение: коробки Лейтнера ----------
+  // Прогресс — на пару (карточка, направление): { box 1–5, due — день следующего повтора, last — день ответа }.
+  // Дни — номера календарных дней по местному времени. Интервал после попадания в коробку:
+  const BOX_DAYS = [0, 1, 3, 7, 14, 30];
+  const LEARNED_BOX = 3;
+  const dayOf = (ms) => { const d = new Date(ms); return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5); };
+
+  // Верный ответ двигает в следующую коробку, только если срок наступил (или карточка новая):
+  // повторные ответы в тот же день не перескакивают интервалы. Неверный — в коробку 1, повтор завтра
+  function nextProgress(p, ok, today) {
+    if (!ok) return { box: 1, due: today + 1, last: today };
+    if (p && p.due > today) return { ...p, last: today };
+    const box = Math.min((p ? p.box : 0) + 1, BOX_DAYS.length - 1);
+    return { box, due: today + BOX_DAYS[box], last: today };
+  }
+
+  // lessons, groups, notes — LESSONS, GROUPS и NOTES из data.js;
+  // newId — источник уникальных id для своих папок, модулей и карточек; now — текущее время в мс
+  function createCore({ lessons, groups, notes, storage, newId, now }) {
     const folders = [...groups, OWN_FOLDER].map((g) => ({ id: g.id, title: g.title, builtIn: true }));
     const modules = Object.entries(lessons).map(([id, lesson]) => builtInModule(id, lesson, notes));
     const byId = new Map(modules.map((m) => [m.id, m]));
@@ -132,6 +148,22 @@
       if (byId.has(id)) return byId.get(id);
       const m = loadOwn().modules.find((x) => x.id === id);
       return m ? ownView(m) : null;
+    }
+
+    // Прогресс повторения под ключом progress: { [id карточки]: { 'en-ru': {...}, 'ru-en': {...} } }
+    const loadProgress = () => storage.get('progress', {});
+    const today = () => dayOf(now());
+    const isDueIn = (all, cardId, day) => Object.values(all[cardId] || {}).some((p) => p.due <= day);
+    // Состояние каждой карточки модуля: { [id]: { state: 'new' | 'learning' | 'learned', due } }
+    function cardStates(moduleId) {
+      const all = loadProgress();
+      const day = today();
+      const learned = (id) => ['en-ru', 'ru-en'].every((d) => (all[id]?.[d]?.box || 0) >= LEARNED_BOX);
+      const out = {};
+      for (const c of findModule(moduleId)?.cards || []) {
+        out[c.id] = { state: !all[c.id] ? 'new' : learned(c.id) ? 'learned' : 'learning', due: isDueIn(all, c.id, day) };
+      }
+      return out;
     }
 
     // Скрытые встроенные модули — список id под ключом hidden
@@ -192,9 +224,35 @@
             cards: src.cards.map(({ id: _, ...fields }) => newCard(fields)),
           };
           own.modules.push(m);
+          // прогресс исходных карточек переходит на карточки копии
+          const all = loadProgress();
+          src.cards.forEach((c, i) => { if (all[c.id]) all[m.cards[i].id] = JSON.parse(JSON.stringify(all[c.id])); });
+          storage.set('progress', all);
           return ownView(m);
         });
       },
+
+      // Ответ по карточке в направлении 'en-ru' или 'ru-en' из любого режима
+      recordAnswer(cardId, direction, ok) {
+        const all = loadProgress();
+        const day = today();
+        all[cardId] = { ...all[cardId], [direction]: nextProgress(all[cardId]?.[direction], ok, day) };
+        storage.set('progress', all);
+      },
+      cardProgress: (cardId) => loadProgress()[cardId] || {},
+      // Ждёт повторения: срок хотя бы одного направления наступил
+      isDue: (cardId) => isDueIn(loadProgress(), cardId, today()),
+      // total — карточек, seen — встречено, learned — выучено (оба направления в коробке 3+), due — ждут повторения
+      moduleStats(moduleId) {
+        const states = Object.values(cardStates(moduleId));
+        return {
+          total: states.length,
+          seen: states.filter((s) => s.state !== 'new').length,
+          learned: states.filter((s) => s.state === 'learned').length,
+          due: states.filter((s) => s.due).length,
+        };
+      },
+      cardStates,
 
       createFolder: (name) => editOwn((own) => {
         const f = { id: `f_${newId()}`, title: title(name) };

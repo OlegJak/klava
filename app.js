@@ -69,6 +69,7 @@ const core = KlavaCore.createCore({
   lessons: LESSONS, groups: GROUPS, notes: NOTES,
   storage: KlavaCore.browserStorage(() => localStorage, 'klava:'),
   newId: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+  now: () => Date.now(),
 });
 const store = core.settings;
 
@@ -90,8 +91,8 @@ function makeChunks(lessonId) {
   // Фразы — по 10 за урок, слова — по 20, в каждой строке одна фраза или одно слово
   const mod = core.module(lessonId);
   const isWords = mod.kind === 'words';
-  return shuffle(mod.cards).slice(0, isWords ? 20 : 10).map(({ term: en, definition: ru, explanation }) => ({
-    text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru || '?'}` : ru }],
+  return shuffle(mod.cards).slice(0, isWords ? 20 : 10).map(({ id: cardId, term: en, definition: ru, explanation }) => ({
+    cardId, text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru || '?'}` : ru }],
   }));
 }
 
@@ -127,6 +128,7 @@ function startLesson() {
   state.chars = [];
   state.wrongKey = '';
   state.errors = 0;
+  state.errorsAtLine = 0; // ошибок было к началу текущей строки
   state.typed = 0;
   state.lineStart = 0;
   state.lessonChars = 0;
@@ -322,6 +324,7 @@ function checkDictation(chunk) {
   const d = state.dict;
   d.res = compareDictation(d.input, chunk.text);
   d.checked = true;
+  recordLine(chunk, d.res.errs === 0);
   state.errors += d.res.errs;
   state.typed += d.res.matched;
   if (state.lineStart) {
@@ -527,6 +530,7 @@ function goNextLine(chunk, e) {
   if (hasUnfixed(chunk)) { flash(keyByCode[e.code], 'wrong'); return; }
   state.wrongKey = ''; // лишняя клавиша после конца строки ошибкой в строке не считается
   state.typed++;
+  recordLine(chunk, state.errors === state.errorsAtLine);
   nextChunk();
   render();
 }
@@ -547,9 +551,15 @@ function finishLine(chunk) {
   state.lineStart = 0;
 }
 
+// Ответ по карточке строки — в повторение. Во всех режимах набора воспроизводится английский: «рус → англ»
+function recordLine(chunk, ok) {
+  if (chunk.cardId) core.recordAnswer(chunk.cardId, 'ru-en', ok);
+}
+
 function nextChunk() {
   finishLine(state.chunks[state.index]);
   state.index++;
+  state.errorsAtLine = state.errors;
   state.pos = 0;
   state.missed = new Set();
   state.chars = [];
@@ -984,10 +994,22 @@ function renderModule(id) {
   const emptyText = id === 'mine'
     ? 'Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.'
     : 'В модуле пока нет карточек.';
+  // у каждой карточки — точка состояния: новая, изучается, выучена; рамка — пора повторить
+  const states = core.cardStates(id);
+  const stateTitle = { new: 'Новая', learning: 'Изучается', learned: 'Выучена' };
+  const dot = (c) => {
+    const st = states[c.id];
+    return `<span class="card-dot ${st.state}${st.due ? ' due' : ''}" title="${stateTitle[st.state]}${st.due ? ' · пора повторить' : ''}"></span>`;
+  };
   const list = cards.length
-    ? `<ol class="card-list">${cards.map((c) =>
-      `<li><span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
+    ? `<ol class="card-list with-dots">${cards.map((c) =>
+      `<li>${dot(c)}<span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
     : `<p class="empty">${emptyText}</p>`;
+  const stats = core.moduleStats(id);
+  const statsLine = stats.seen
+    ? ` · выучено ${Math.round((stats.learned / stats.total) * 100)}%` +
+      (stats.due ? ` · <span class="due-count">ждут повторения: ${stats.due}</span>` : '')
+    : '';
   const hiddenNow = core.isHidden(id);
   const actions = '<div class="page-actions">' + (own
     ? actionLink(`#/module/${id}/edit`, '✏️ Изменить') + actionLink(`#/import/module/${id}`, 'Импорт') +
@@ -1000,7 +1022,7 @@ function renderModule(id) {
     return cards.length ? `<a class="mode-btn" href="#/module/${id}/${path}">${inner}</a>` : `<span class="mode-btn disabled">${inner}</span>`;
   };
   return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
-    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div>${actions}</section>${hiddenNote}` +
+    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}${statsLine}</small></div>${actions}</section>${hiddenNote}` +
     '<div class="modes">' +
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
@@ -1088,6 +1110,7 @@ function flashFlip() {
 }
 
 function flashMark(known) {
+  core.recordAnswer(flashcards.session.current.id, flashDir(), known);
   flashcards.session = KlavaCore.flashAnswer(flashcards.session, known);
   flashcards.flipped = false;
   renderFlash();
@@ -1201,6 +1224,7 @@ function learnRespond(result, given, choice) {
 
 // Дальше: ответ засчитывается («почти» — тоже верно) и занятие переходит к следующему вопросу
 function learnContinue(ok = learn.feedback.result !== 'wrong') {
+  core.recordAnswer(learn.state.question.card.id, flashDir(), ok);
   learn.state = KlavaCore.learnAnswer(learn.state, ok);
   learn.feedback = null;
   renderLearn();

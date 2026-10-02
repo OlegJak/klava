@@ -34,7 +34,10 @@ const fixture = () => ({
 
 // Предсказуемые id для своих папок, модулей и карточек
 const counter = () => { let n = 0; return () => String(++n); };
-const makeCore = (overrides = {}) => createCore({ ...fixture(), storage: memoryStorage(), newId: counter(), ...overrides });
+// «Сейчас» для ядра: полдень заданного дня октября 2026 года (по местному времени)
+const clock = (day = 1) => { const c = { day, now: () => new Date(2026, 9, c.day, 12).getTime() }; return c; };
+const makeCore = (overrides = {}) =>
+  createCore({ ...fixture(), storage: memoryStorage(), newId: counter(), now: clock().now, ...overrides });
 
 // ---------- Каталог ----------
 
@@ -498,6 +501,124 @@ test('заучивание: карточки без ответа в выбран
 test('заучивание: вариантов меньше четырёх, если в модуле мало карточек', () => {
   const q = learnSession(words.slice(0, 2)).question;
   assert.equal(q.choices.length, 2);
+});
+
+// ---------- Повторение (коробки Лейтнера) ----------
+
+// Ядро с часами, которые можно переводить по дням
+const timed = () => { const c = clock(1); return { c, core: makeCore({ now: c.now }) }; };
+const card = (core, i = 0) => core.module('basic').cards[i].id;
+
+test('повторение: невстреченные карточки — без прогресса и не ждут повторения', () => {
+  const { core } = timed();
+  assert.deepEqual(core.cardProgress(card(core)), {});
+  assert.deepEqual(core.moduleStats('basic'), { total: 2, seen: 0, learned: 0, due: 0 });
+});
+
+test('повторение: первый ответ заносит карточку в коробку 1, повтор завтра', () => {
+  const { c, core } = timed();
+  core.recordAnswer(card(core), 'en-ru', true);
+  const p = core.cardProgress(card(core))['en-ru'];
+  assert.deepEqual([p.box, p.due - p.last], [1, 1]);
+  assert.equal(core.moduleStats('basic').due, 0);
+  c.day = 2;
+  assert.equal(core.moduleStats('basic').due, 1);
+});
+
+test('повторение: верные ответы в срок — коробки 1→5 с интервалами 1, 3, 7, 14, 30 дней, из пятой — снова 30', () => {
+  const { c, core } = timed();
+  const id = card(core);
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    core.recordAnswer(id, 'en-ru', true);
+    const p = core.cardProgress(id)['en-ru'];
+    seen.push([p.box, p.due - p.last]);
+    c.day += p.due - p.last; // приходим ровно в срок
+  }
+  assert.deepEqual(seen, [[1, 1], [2, 3], [3, 7], [4, 14], [5, 30], [5, 30]]);
+});
+
+test('повторение: верный ответ до срока коробку не меняет', () => {
+  const { c, core } = timed();
+  const id = card(core);
+  core.recordAnswer(id, 'en-ru', true);
+  core.recordAnswer(id, 'en-ru', true); // в тот же день, ещё рано
+  assert.equal(core.cardProgress(id)['en-ru'].box, 1);
+  c.day = 2;
+  core.recordAnswer(id, 'en-ru', true);
+  assert.equal(core.cardProgress(id)['en-ru'].box, 2);
+});
+
+test('повторение: неверный ответ — коробка 1 и повтор завтра, даже до срока', () => {
+  const { c, core } = timed();
+  const id = card(core);
+  for (const d of [1, 2, 5]) { c.day = d; core.recordAnswer(id, 'en-ru', true); }
+  assert.equal(core.cardProgress(id)['en-ru'].box, 3);
+  c.day = 6;
+  core.recordAnswer(id, 'en-ru', false);
+  const p = core.cardProgress(id)['en-ru'];
+  assert.deepEqual([p.box, p.due - p.last], [1, 1]);
+});
+
+test('повторение: направления «англ → рус» и «рус → англ» независимы', () => {
+  const { core } = timed();
+  const id = card(core);
+  core.recordAnswer(id, 'en-ru', true);
+  assert.equal(core.cardProgress(id)['ru-en'], undefined);
+  core.recordAnswer(id, 'ru-en', false);
+  assert.equal(core.cardProgress(id)['en-ru'].box, 1);
+  assert.equal(core.cardProgress(id)['ru-en'].box, 1);
+});
+
+test('повторение: слово выучено, когда оба направления в коробке 3 и выше', () => {
+  const { c, core } = timed();
+  const id = card(core);
+  for (const d of [1, 2, 5]) { c.day = d; core.recordAnswer(id, 'en-ru', true); }
+  assert.equal(core.moduleStats('basic').learned, 0);
+  for (const d of [5, 6, 9]) { c.day = d; core.recordAnswer(id, 'ru-en', true); }
+  assert.deepEqual(core.moduleStats('basic'), { total: 2, seen: 1, learned: 1, due: 0 });
+});
+
+test('повторение: ждут — карточки, у которых срок хотя бы одного направления наступил', () => {
+  const { c, core } = timed();
+  core.recordAnswer(card(core, 0), 'en-ru', true);
+  core.recordAnswer(card(core, 1), 'ru-en', true);
+  c.day = 2;
+  core.recordAnswer(card(core, 1), 'ru-en', true); // вторая ушла на 3 дня
+  assert.equal(core.moduleStats('basic').due, 1);
+  assert.equal(core.isDue(card(core, 0)), true);
+  assert.equal(core.isDue(card(core, 1)), false);
+});
+
+test('повторение: состояние каждой карточки модуля — новая, изучается, выучена; ждёт ли повторения', () => {
+  const { c, core } = timed();
+  const [a, b] = [card(core, 0), card(core, 1)];
+  for (const d of [1, 2, 5]) { c.day = d; core.recordAnswer(a, 'en-ru', true); core.recordAnswer(a, 'ru-en', true); }
+  core.recordAnswer(b, 'en-ru', false);
+  c.day = 6;
+  assert.deepEqual(core.cardStates('basic'), {
+    [a]: { state: 'learned', due: false },
+    [b]: { state: 'learning', due: true },
+  });
+  const m = core.createModule({ title: 'Свой', folderId: 'words' });
+  const x = core.addCard(m.id, { term: 'x' });
+  assert.deepEqual(core.cardStates(m.id), { [x.id]: { state: 'new', due: false } });
+});
+
+test('повторение: прогресс сохраняется в хранилище', () => {
+  const storage = memoryStorage();
+  const c = clock(1);
+  const core = makeCore({ storage, now: c.now });
+  core.recordAnswer(card(core), 'en-ru', true);
+  assert.equal(makeCore({ storage, now: c.now }).cardProgress(card(core))['en-ru'].box, 1);
+});
+
+test('повторение: копия встроенного модуля получает его прогресс', () => {
+  const { core } = timed();
+  core.recordAnswer(card(core, 1), 'ru-en', true);
+  const copy = core.copyModule('basic');
+  assert.deepEqual(core.cardProgress(copy.cards[1].id), core.cardProgress(card(core, 1)));
+  assert.deepEqual(core.cardProgress(copy.cards[0].id), {});
 });
 
 // ---------- Импорт ----------

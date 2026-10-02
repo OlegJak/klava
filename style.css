@@ -131,6 +131,12 @@ button { padding: 6px 14px; cursor: pointer; }
   border-top: 1px solid var(--line);
 }
 .card-list li:first-child { border-top: none; }
+.card-list.with-dots li { grid-template-columns: 10px minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; }
+.card-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); align-self: center; }
+.card-dot.learning { background: #d9a21b; }
+.card-dot.learned { background: var(--ok); }
+.card-dot.due { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--accent); }
+.due-count { color: var(--accent); }
 .card-term { font-weight: 500; }
 .card-def { color: var(--muted); }
 .empty { color: var(--muted); }
@@ -574,6 +580,8 @@ kbd {
   .crumbs { order: 3; flex-basis: 100%; }
   .theme-btn { margin-left: auto; }
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
+  .card-list.with-dots li { grid-template-columns: 10px 1fr; column-gap: 10px; }
+  .card-list.with-dots .card-def { grid-column: 2; }
   .edit-main { grid-template-columns: 1fr; }
   .imp-seps { grid-template-columns: 1fr; }
   /* Карточки одной рукой: карточка заполняет экран, кнопки — внизу под большим пальцем */
