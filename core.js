@@ -87,20 +87,23 @@
 
   // lessons, groups, notes — LESSONS, GROUPS и NOTES из data.js;
   // newId — источник уникальных id для своих папок, модулей и карточек
+  // Системная папка «Своё»: в ней «Мои слова»; её нельзя переименовать или удалить, но можно класть туда модули
+  const OWN_FOLDER = { id: 'own', title: 'Своё' };
+  // «Мои слова» — свой модуль с постоянным id: туда «+ В словарь» складывает слова. Удалить его нельзя
+  const MINE = 'mine';
+
   function createCore({ lessons, groups, notes, storage, newId }) {
-    const folders = groups.map((g) => ({ id: g.id, title: g.title, builtIn: true }));
+    const folders = [...groups, OWN_FOLDER].map((g) => ({ id: g.id, title: g.title, builtIn: true }));
     const modules = Object.entries(lessons).map(([id, lesson]) => builtInModule(id, lesson, notes));
     const byId = new Map(modules.map((m) => [m.id, m]));
     const builtInFolderIds = new Set(folders.map((f) => f.id));
-
-    // «Мои слова» хранятся под ключом study как [[термин, перевод], …] — формат прежней версии сайта
-    const study = () => storage.get('study', []);
 
     // Свои папки и модули — под ключом own: { folders: [{ id, title }], modules: [{ id, title, folderId, langs, cards }] }.
     // Приставки f_, m_, c_ не дают id совпасть со встроенными
     const loadOwn = () => storage.get('own', { folders: [], modules: [] });
     const editOwn = (fn) => { const own = loadOwn(); const r = fn(own); storage.set('own', own); return r; };
-    const ownView = (m) => ({ ...m, icon: '📘', kind: kindOf(m.cards), builtIn: false });
+    const ownView = (m) => ({ ...m, icon: m.id === MINE ? '⭐' : '📘', kind: kindOf(m.cards), builtIn: false });
+    const sameTerm = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
     const folderExists = (own, id) => builtInFolderIds.has(id) || own.folders.some((f) => f.id === id);
 
     function ownFolder(own, id) {
@@ -126,6 +129,23 @@
       applyCardFields({ id: `c_${newId()}`, term: '', definition: '' }, { definition: '', ...fields, term: fields.term });
 
     const allModules = () => [...modules, ...loadOwn().modules.map(ownView)];
+
+    // «Мои слова» есть всегда. Прежняя версия сайта хранила их списком [[термин, перевод], …]
+    // под ключом study — переносим его в модуль один раз и очищаем
+    const study = storage.get('study', []);
+    if (study.length || !loadOwn().modules.some((m) => m.id === MINE)) {
+      editOwn((own) => {
+        let mine = own.modules.find((m) => m.id === MINE);
+        if (!mine) {
+          mine = { id: MINE, title: 'Мои слова', folderId: OWN_FOLDER.id, langs: { term: 'en', definition: 'ru' }, cards: [] };
+          own.modules.unshift(mine);
+        }
+        for (const [term, definition] of study) {
+          if (term && !mine.cards.some((c) => sameTerm(c.term, term))) mine.cards.push(newCard({ term, definition }));
+        }
+      });
+      if (study.length) storage.set('study', []);
+    }
 
     return {
       folders: () => [...folders, ...loadOwn().folders.map((f) => ({ ...f, builtIn: false }))],
@@ -164,6 +184,7 @@
       }),
       deleteModule: (id) => editOwn((own) => {
         ownModule(own, id);
+        if (id === MINE) throw new Error('«Мои слова» удалить нельзя');
         own.modules = own.modules.filter((m) => m.id !== id);
       }),
 
@@ -187,6 +208,14 @@
         const m = ownModule(own, moduleId);
         ownCard(m, cardId);
         m.cards = m.cards.filter((c) => c.id !== cardId);
+      }),
+      // Перенести карточку в конец другого своего модуля
+      moveCardTo: (fromId, cardId, toId) => editOwn((own) => {
+        const from = ownModule(own, fromId);
+        const to = ownModule(own, toId);
+        const card = ownCard(from, cardId);
+        from.cards = from.cards.filter((c) => c !== card);
+        to.cards.push(card);
       }),
       // Поставить карточку на место index (за краями — в начало или конец)
       moveCard: (moduleId, cardId, index) => editOwn((own) => {
@@ -216,14 +245,14 @@
       phrases: () => modules.filter((m) => m.kind === 'phrases')
         .flatMap((m) => m.cards.map(({ term, definition }) => ({ term, definition }))),
 
-      myWords: () => study().map(([term, definition]) => ({ term, definition })),
-      hasMyWord: (term) => study().some(([t]) => t === term),
-      addMyWord(term, definition) {
-        const list = study();
-        if (list.some(([t]) => t === term)) return false;
-        storage.set('study', [...list, [term, definition || '']]);
+      // «+ В словарь»: карточка в «Мои слова» (термин, перевод, пример с переводом); повтор не добавляется
+      hasMyWord: (term) => loadOwn().modules.find((m) => m.id === MINE).cards.some((c) => sameTerm(c.term, term)),
+      addMyWord: (fields) => editOwn((own) => {
+        const mine = ownModule(own, MINE);
+        if (mine.cards.some((c) => sameTerm(c.term, fields.term))) return false;
+        mine.cards.push(newCard(fields));
         return true;
-      },
+      }),
 
       // Недавно открытые модули для главной: id, последний открытый — первым
       recent: () => storage.get('recent', []),

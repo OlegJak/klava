@@ -38,16 +38,17 @@ const makeCore = (overrides = {}) => createCore({ ...fixture(), storage: memoryS
 
 // ---------- Каталог ----------
 
-test('встроенные папки повторяют группы меню', () => {
+test('встроенные папки повторяют группы меню, в конце — системная папка «Своё»', () => {
   assert.deepEqual(makeCore().folders(), [
     { id: 'words', title: 'Слова', builtIn: true },
     { id: 'grammar', title: 'Грамматика', builtIn: true },
+    { id: 'own', title: 'Своё', builtIn: true },
   ]);
 });
 
 test('встроенные модули повторяют уроки и лежат в папках своих групп', () => {
   const core = makeCore();
-  assert.deepEqual(core.modules().map((m) => m.id), ['basic', 'verbs', 'cond']);
+  assert.deepEqual(core.modules().filter((m) => m.builtIn).map((m) => m.id), ['basic', 'verbs', 'cond']);
   assert.deepEqual(core.modules('words').map((m) => m.id), ['basic', 'verbs']);
   const basic = core.module('basic');
   assert.equal(basic.title, 'Базовый уровень');
@@ -116,7 +117,7 @@ test('настоящие уроки из data.js загружаются в ка�
   const data = vm.runInNewContext(`${src}\n;({ LESSONS, GROUPS, NOTES })`);
   const core = createCore({ lessons: data.LESSONS, groups: data.GROUPS, notes: data.NOTES, storage: memoryStorage() });
   const folderIds = new Set(core.folders().map((f) => f.id));
-  const modules = core.modules();
+  const modules = core.modules().filter((m) => m.builtIn);
   assert.ok(modules.length > 0);
   for (const m of modules) {
     assert.ok(folderIds.has(m.folderId), `папка модуля ${m.id}`);
@@ -136,7 +137,7 @@ test('своя папка: создать, переименовать; появ�
   const f = core.createFolder('  Работа  ');
   assert.equal(f.title, 'Работа');
   assert.equal(f.builtIn, false);
-  assert.deepEqual(core.folders().map((x) => x.id), ['words', 'grammar', f.id]);
+  assert.deepEqual(core.folders().map((x) => x.id), ['words', 'grammar', 'own', f.id]);
   core.renameFolder(f.id, 'Работа и учёба');
   assert.equal(core.folders().find((x) => x.id === f.id).title, 'Работа и учёба');
 });
@@ -327,24 +328,67 @@ test('добавление нескольких карточек сразу', ()
 
 // ---------- «Мои слова» и настройки ----------
 
-test('«Мои слова»: добавление без дублей и сохранение в хранилище', () => {
-  const storage = memoryStorage();
-  const core = makeCore({ storage });
-  assert.deepEqual(core.myWords(), []);
-  assert.equal(core.addMyWord('exaggerate', 'преувеличивать'), true);
-  assert.equal(core.addMyWord('exaggerate', 'другой перевод'), false);
-  assert.equal(core.hasMyWord('exaggerate'), true);
-  assert.equal(core.hasMyWord('time'), false);
-  // новое ядро с тем же хранилищем видит сохранённое слово
-  assert.deepEqual(makeCore({ storage }).myWords(), [{ term: 'exaggerate', definition: 'преувеличивать' }]);
+const terms = (core, id) => core.module(id).cards.map((c) => [c.term, c.definition]);
+
+test('«Мои слова» — свой модуль в папке «Своё», он есть всегда', () => {
+  const m = makeCore().module('mine');
+  assert.equal(m.title, 'Мои слова');
+  assert.equal(m.icon, '⭐');
+  assert.equal(m.folderId, 'own');
+  assert.equal(m.builtIn, false);
+  assert.deepEqual(m.cards, []);
 });
 
-test('«Мои слова» читают список, сохранённый прежней версией сайта', () => {
+test('«Мои слова» нельзя удалить, но можно править как обычный модуль', () => {
+  const core = makeCore();
+  assert.throws(() => core.deleteModule('mine'));
+  core.addCard('mine', { term: 'tide', definition: 'прилив' });
+  assert.deepEqual(terms(core, 'mine'), [['tide', 'прилив']]);
+});
+
+test('«Мои слова»: добавление с переводом и примером, без повторов', () => {
+  const storage = memoryStorage();
+  const core = makeCore({ storage });
+  assert.equal(core.addMyWord({
+    term: 'exaggerate', definition: 'преувеличивать', example: 'Don\'t exaggerate.', exampleTranslation: 'Не преувеличивай.',
+  }), true);
+  assert.equal(core.addMyWord({ term: 'exaggerate', definition: 'другой перевод' }), false);
+  assert.equal(core.hasMyWord('exaggerate'), true);
+  assert.equal(core.hasMyWord('time'), false);
+  const [card] = makeCore({ storage }).module('mine').cards;
+  assert.deepEqual(
+    [card.term, card.definition, card.example, card.exampleTranslation],
+    ['exaggerate', 'преувеличивать', 'Don\'t exaggerate.', 'Не преувеличивай.'],
+  );
+});
+
+test('список «Мои слова» прежней версии сайта переносится в модуль один раз, без повторов', () => {
   const storage = memoryStorage({ study: [['tide', 'прилив'], ['ebb', '']] });
-  assert.deepEqual(makeCore({ storage }).myWords(), [
-    { term: 'tide', definition: 'прилив' },
-    { term: 'ebb', definition: '' },
-  ]);
+  const core = makeCore({ storage });
+  assert.deepEqual(terms(core, 'mine'), [['tide', 'прилив'], ['ebb', '']]);
+  // прежний список очищен, повторный запуск ничего не дублирует
+  assert.deepEqual(storage.get('study', []), []);
+  assert.deepEqual(terms(makeCore({ storage, newId: () => 'x' }), 'mine'), [['tide', 'прилив'], ['ebb', '']]);
+});
+
+test('перенос: слово из старого списка, которое уже есть в модуле, не дублируется', () => {
+  const storage = memoryStorage();
+  makeCore({ storage }).addMyWord({ term: 'tide', definition: 'прилив' });
+  storage.set('study', [['tide', 'другое'], ['ebb', 'отлив']]);
+  assert.deepEqual(terms(makeCore({ storage, newId: () => 'y' }), 'mine'), [['tide', 'прилив'], ['ebb', 'отлив']]);
+});
+
+test('карточку можно перенести в другой свой модуль', () => {
+  const core = makeCore();
+  const target = core.createModule({ title: 'Море', folderId: 'words' });
+  core.addMyWord({ term: 'tide', definition: 'прилив' });
+  core.addMyWord({ term: 'ebb', definition: 'отлив' });
+  const card = core.module('mine').cards[0];
+  core.moveCardTo('mine', card.id, target.id);
+  assert.deepEqual(terms(core, 'mine'), [['ebb', 'отлив']]);
+  assert.deepEqual(core.module(target.id).cards, [card]);
+  assert.throws(() => core.moveCardTo('mine', core.module('mine').cards[0].id, 'basic'));
+  assert.throws(() => core.moveCardTo('mine', 'nope', target.id));
 });
 
 test('настройки читаются и пишутся через хранилище', () => {

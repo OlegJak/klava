@@ -87,17 +87,11 @@ function makeChunks(lessonId) {
     return chunks.map((t) => ({ text: t, parts: [] }));
   }
 
-  if (lessonId === 'mine') {
-    return shuffle(core.myWords()).slice(0, 20).map(({ term: en, definition: ru }) => ({
-      text: en, ru, parts: [{ from: 0, to: en.length, tr: `${en} — ${ru || '?'}` }],
-    }));
-  }
-
   // Фразы — по 10 за урок, слова — по 20, в каждой строке одна фраза или одно слово
   const mod = core.module(lessonId);
   const isWords = mod.kind === 'words';
   return shuffle(mod.cards).slice(0, isWords ? 20 : 10).map(({ term: en, definition: ru, explanation }) => ({
-    text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru}` : ru }],
+    text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru || '?'}` : ru }],
   }));
 }
 
@@ -679,16 +673,22 @@ function onCtrl() {
   findExample(w.word, chunk, w.from).then((ex) => { next.ex = ex; if (state.lookup === next) renderLookup(); });
 }
 
-// Добавить слово или фразу в «Мои слова» вместе с переводом
-async function addToStudy(en) {
-  core.addMyWord(en, await translate(en));
+// Добавить слово или фразу в «Мои слова» с переводом и примером — фразой, где оно встретилось.
+// from — место слова в текущей строке (-1 — неизвестно, например выделено в списке примеров)
+async function addToStudy(en, from = -1) {
+  const chunk = state.chunks[state.index];
+  const known = chunk && (state.lessonId !== 'custom' || from >= 0);
+  const [definition, ex] = await Promise.all([translate(en), known ? currentSentence(chunk, from) : null]);
+  // в словарных уроках строка — само слово, примером она не служит
+  const example = ex && ex.en !== en ? ex : null;
+  core.addMyWord({ term: en, definition: definition || '', example: example?.en, exampleTranslation: example?.ru || '' });
 }
 
 function saveLookup(lk) {
   if (lk.saved) return;
   lk.saved = true;
   renderLookup();
-  addToStudy(lk.word);
+  addToStudy(lk.word, lk.from);
 }
 
 // ---------- Панель над словом: произнести, в словарь, ещё фразы ----------
@@ -849,7 +849,7 @@ function initWordTools() {
     if (act === 'add') {
       btn.disabled = true;
       btn.textContent = 'Добавляю…';
-      await addToStudy(target.text);
+      await addToStudy(target.text, target.from);
       if (state.lookup && state.lookup.word === target.text) { state.lookup.saved = true; renderLookup(); }
       if (tools.target === target) btn.textContent = '✓ В словаре';
     }
@@ -899,20 +899,18 @@ function renderExampleList(lk) {
 // Адреса: #/ — главная, #/folder/<id> — папка, #/module/<id> — модуль,
 // #/module/<id>/type — набор по модулю, #/module/<id>/edit — правка своего модуля,
 // #/new или #/new/<папка> — новый модуль, #/custom — «Свой текст»
+// «Свой текст» — не модуль, а режим тренажёра; живёт в системной папке «Своё» рядом с «Моими словами»
 const SPECIAL = {
-  mine: { title: 'Мои слова', group: 'own', icon: '⭐' },
   custom: { title: 'Свой текст', group: 'own', icon: '📝' },
 };
-// Папка «Своё» — для «Моих слов» и «Своего текста», в ядре её нет
-const OWN_SPECIAL = { id: 'own', title: 'Своё', builtIn: true };
-// Порядок на главной: сначала свои папки, потом встроенные, в конце «Своё»
+// Порядок на главной: сначала свои папки, потом встроенные (системная «Своё» — последняя из них)
 const allFolders = () => {
   const list = core.folders();
-  return [...list.filter((f) => !f.builtIn), ...list.filter((f) => f.builtIn), OWN_SPECIAL];
+  return [...list.filter((f) => !f.builtIn), ...list.filter((f) => f.builtIn)];
 };
 const folderOf = (id) => allFolders().find((f) => f.id === id);
-// Папки, куда можно положить свой модуль
-const moduleFolders = () => allFolders().filter((f) => f !== OWN_SPECIAL);
+// Папки, куда можно положить свой модуль, — все
+const moduleFolders = allFolders;
 const isOwnModule = (id) => core.module(id)?.builtIn === false;
 const escapeAttr = (s) => escapeHtml(s).replace(/"/g, '&quot;');
 // Название, значок и папка — для модуля или особого урока
@@ -929,16 +927,16 @@ const plural = (n, one, few, many) => {
 
 function lessonCount(id) {
   if (id === 'custom') return 'любой текст';
-  if (id === 'mine') return plural(core.myWords().length, 'слово', 'слова', 'слов');
   const m = core.module(id);
   return m.kind === 'words' ? plural(m.cards.length, 'слово', 'слова', 'слов') : plural(m.cards.length, 'фраза', 'фразы', 'фраз');
 }
 
-// Уроки папки: встроенные модули из ядра, в «Своём» — «Мои слова» и «Свой текст»
-const folderLessons = (folderId) => (folderId === 'own' ? Object.keys(SPECIAL) : core.modules(folderId).map((m) => m.id));
+// Уроки папки — её модули, в «Своём» ещё и «Свой текст»
+const folderLessons = (folderId) =>
+  [...core.modules(folderId).map((m) => m.id), ...Object.keys(SPECIAL).filter((id) => SPECIAL[id].group === folderId)];
 // Модуль открывается своей страницей, «Свой текст» — сразу тренажёром
 const lessonHref = (id) => (id === 'custom' ? '#/custom' : `#/module/${id}`);
-const lessonCards = (id) => (id === 'mine' ? core.myWords() : core.module(id).cards);
+const lessonCards = (id) => core.module(id).cards;
 
 const tile = (href, icon, title, sub) =>
   `<a class="tile" href="${href}"><span class="tile-icon">${icon}</span>` +
@@ -967,7 +965,7 @@ function renderFolder(folderId) {
   const f = folderOf(folderId);
   const ids = folderLessons(folderId);
   let actions = '';
-  if (f !== OWN_SPECIAL) actions += actionLink(`#/new/${folderId}`, '+ Модуль') + actionLink(`#/import/folder/${folderId}`, 'Импорт');
+  actions += actionLink(`#/new/${folderId}`, '+ Модуль') + actionLink(`#/import/folder/${folderId}`, 'Импорт');
   if (!f.builtIn) actions += actionBtn('rename-folder', 'Переименовать') + actionBtn('delete-folder', 'Удалить', 'danger');
   return tilesSection(f.title, ids.map(lessonTile), actions && `<div class="page-actions">${actions}</div>`) +
     (ids.length ? '' : '<p class="empty">В папке пока нет модулей.</p>');
@@ -986,7 +984,7 @@ function renderModule(id) {
     : `<p class="empty">${emptyText}</p>`;
   const actions = own
     ? `<div class="page-actions">${actionLink(`#/module/${id}/edit`, '✏️ Изменить')}${actionLink(`#/import/module/${id}`, 'Импорт')}` +
-      `${actionBtn('delete-module', 'Удалить', 'danger')}</div>`
+      `${id === 'mine' ? '' : actionBtn('delete-module', 'Удалить', 'danger')}</div>`
     : '';
   const typeMode = '<span class="mode-icon">⌨️</span><span class="tile-text"><b>Набор</b>' +
     '<small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span>';
@@ -1113,7 +1111,8 @@ async function doImport() {
 }
 
 // Строка карточки в редакторе. Без карточки — пустая строка внизу для новой
-function editCardRow(c, i) {
+// moveTo — свои модули, куда карточку можно перенести
+function editCardRow(c, i, moveTo = []) {
   const input = (field, label, value = '') =>
     `<label class="field"><span>${label}</span><input data-field="${field}" value="${escapeAttr(value)}"></label>`;
   const main = `<div class="edit-main">${input('term', 'Термин', c?.term)}${input('definition', 'Определение', c?.definition)}</div>`;
@@ -1125,9 +1124,11 @@ function editCardRow(c, i) {
   const hasMore = c.example || c.exampleTranslation || c.explanation;
   return `<li class="edit-card" data-card="${escapeAttr(c.id)}"><span class="edit-num">${i + 1}</span>` +
     `<div class="edit-fields">${main}` +
-    `<details${hasMore ? ' open' : ''}><summary>Пример и объяснение</summary>` +
+    `<details${hasMore ? ' open' : ''}><summary>${moveTo.length ? 'Пример, объяснение, перенос' : 'Пример и объяснение'}</summary>` +
     `${input('example', 'Пример', c.example)}${input('exampleTranslation', 'Перевод примера', c.exampleTranslation)}` +
     `<label class="field"><span>Объяснение</span><textarea data-field="explanation" rows="2">${escapeHtml(c.explanation || '')}</textarea></label>` +
+    (moveTo.length ? '<label class="field"><span>Перенести в модуль</span><select data-move><option value="">—</option>' +
+      `${moveTo.map((m) => `<option value="${escapeAttr(m.id)}">${escapeHtml(m.title)}</option>`).join('')}</select></label>` : '') +
     '</details></div>' +
     '<div class="edit-tools">' +
     '<button class="icon-btn" data-act="card-up" title="Выше">↑</button>' +
@@ -1135,7 +1136,11 @@ function editCardRow(c, i) {
     '<button class="icon-btn" data-act="card-delete" title="Удалить карточку">✕</button></div></li>';
 }
 
-const editCardList = (m) => `${m.cards.map(editCardRow).join('')}${editCardRow(null)}`;
+const moveTargets = (moduleId) => ownModules().filter((m) => m.id !== moduleId);
+const editCardList = (m) => {
+  const moveTo = moveTargets(m.id);
+  return `${m.cards.map((c, i) => editCardRow(c, i, moveTo)).join('')}${editCardRow(null)}`;
+};
 
 function renderEditModule(id) {
   const m = core.module(id);
@@ -1252,7 +1257,7 @@ function fillTranslation(moduleId, cardId, term) {
 // фокус остаётся там, куда его перевёл пользователь
 function promoteNewRow(row, card, index) {
   const tpl = document.createElement('template');
-  tpl.innerHTML = editCardRow(card, index);
+  tpl.innerHTML = editCardRow(card, index, moveTargets(editorModule()));
   const full = tpl.content.firstElementChild;
   row.classList.remove('new');
   row.dataset.card = card.id;
@@ -1277,8 +1282,13 @@ function onEditorChange(e) {
     renderEditCrumbs(id);
     return;
   }
-  const field = el.dataset.field;
   const row = el.closest('.edit-card');
+  if ('move' in el.dataset && el.value) {
+    core.moveCardTo(id, row.dataset.card, el.value);
+    $('edit-cards').innerHTML = editCardList(core.module(id));
+    return;
+  }
+  const field = el.dataset.field;
   if (!field || !row) return;
   const defInput = row.querySelector('[data-field="definition"]');
 
