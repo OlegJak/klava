@@ -281,6 +281,23 @@ button { padding: 6px 14px; cursor: pointer; }
 @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 @media (prefers-reduced-motion: reduce) { .match-tile { transition: none; } .match-tile.miss { animation: none; } }
 
+/* Вход и облако */
+.account { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.account-email { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-status { min-width: 1em; font-variant-numeric: tabular-nums; }
+.cloud-banner {
+  position: fixed; z-index: 30; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  width: min(720px, calc(100vw - 32px));
+  padding: 12px 16px;
+  font-size: 14px;
+  background: var(--panel);
+  border: 1px solid var(--bad);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / .25);
+}
+.cloud-banner span { flex: 1 1 300px; }
+
 /* «Повторить сегодня» */
 .today-banner {
   display: flex; align-items: center; gap: 14px;
@@ -654,6 +671,8 @@ kbd {
   .lesson-btn { min-width: 0; flex: 1; }
   .crumbs { order: 3; flex-basis: 100%; }
   .theme-btn { margin-left: auto; }
+  .account { order: 2; }
+  .account-email { max-width: 140px; }
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
   .card-list.with-dots li { grid-template-columns: 10px 1fr; column-gap: 10px; }
   .card-list.with-dots .card-def { grid-column: 2; }

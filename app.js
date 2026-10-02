@@ -63,14 +63,21 @@ const shuffle = (arr) => {
   return a;
 };
 
-// Уроки, «Мои слова» и настройки — через ядро обучения (core.js)
+// Уроки, «Мои слова» и настройки — через ядро обучения (core.js).
+// Хранилище переключаемое: гость работает с браузером, после входа — с Supabase (см. connectCloud)
 const { normalize, compareDictation } = KlavaCore;
-const core = KlavaCore.createCore({
+const storage = {
+  backend: KlavaCore.browserStorage(() => localStorage, 'klava:'),
+  get: (key, def) => storage.backend.get(key, def),
+  set: (key, val) => storage.backend.set(key, val),
+};
+const makeCore = () => KlavaCore.createCore({
   lessons: LESSONS, groups: GROUPS, notes: NOTES,
-  storage: KlavaCore.browserStorage(() => localStorage, 'klava:'),
+  storage,
   newId: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
   now: () => Date.now(),
 });
+let core = makeCore();
 const store = core.settings;
 
 // Каждый фрагмент: { text, parts: [{ from, to, tr }] } — части нужны для перевода текущего слова
@@ -2084,6 +2091,119 @@ function applyTheme(theme) {
   for (const btn of document.querySelectorAll('.theme-btn')) btn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
 }
 
+// ---------- Вход через Google и облако (Supabase) ----------
+// Гость работает с данными браузера. После входа данные читаются из Supabase и пишутся туда же;
+// без связи — плашка внизу и повторные попытки, несохранённое не теряется
+const SUPABASE_URL = 'https://hjryxrwypwawtkdbokkj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_x858jAMB1jdLRHtnjsysiQ_CF0wWlyY'; // публичный ключ: защиту дают правила доступа в базе
+const cloud = { client: null, user: null, storage: null, error: null, retryTimer: 0 };
+
+const withTimeout = (promise, ms) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error('Сервер не отвечает')), ms)),
+]);
+
+// Подключение при запуске: вернулись ли со входа Google, есть ли сохранённая сессия, загрузка данных
+async function connectCloud() {
+  if (!window.supabase) return; // библиотека не загрузилась (нет сети) — работаем как гость
+  cloud.client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { flowType: 'pkce' } });
+  const authError = cleanAuthUrl();
+  let session = null;
+  try {
+    ({ data: { session } } = await withTimeout(cloud.client.auth.getSession(), 10000));
+  } catch (e) {
+    cloud.error = e;
+  }
+  if (authError) cloud.error = new Error(authError);
+  if (!session) return;
+  cloud.user = session.user;
+  try {
+    const rows = await withTimeout(KlavaCloud.loadRows(cloud.client), 15000);
+    cloud.storage = KlavaCloud.cloudStorage({ client: cloud.client, userId: cloud.user.id, rows, onStatus: onCloudStatus });
+    storage.backend = cloud.storage;
+    core = makeCore(); // на новом хранилище: заводит «Мои слова», если их ещё нет
+  } catch (e) {
+    cloud.error = e; // остаёмся на данных браузера, плашка об этом скажет
+  }
+}
+
+// После возврата от Google в адресе остаются ?code=… или ?error=… — убираем их, адрес экрана (#/…) сохраняем
+function cleanAuthUrl() {
+  const params = new URLSearchParams(location.search);
+  if (!params.has('code') && !params.has('error')) return null;
+  const error = params.get('error_description') || params.get('error');
+  history.replaceState(null, '', location.pathname + location.hash);
+  return error;
+}
+
+function signIn() {
+  cloud.client.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: location.origin + location.pathname },
+  });
+}
+
+async function signOut() {
+  if (cloud.storage?.pending()) await cloud.storage.flush();
+  await cloud.client.auth.signOut();
+  location.reload();
+}
+
+function renderAccount() {
+  const el = $('account');
+  if (!cloud.client) { el.innerHTML = ''; return; }
+  if (!cloud.user || !cloud.storage) {
+    el.innerHTML = '<button class="pill-btn" data-act="sign-in">Войти через Google</button>';
+    return;
+  }
+  el.innerHTML = `<span class="account-email" title="Данные хранятся в облаке">☁ ${escapeHtml(cloud.user.email || '')}</span>` +
+    '<span id="sync-status" class="sync-status"></span>' +
+    '<button class="pill-btn" data-act="sign-out">Выйти</button>';
+}
+
+function showCloudBanner(html) {
+  const el = $('cloud-banner');
+  el.hidden = !html;
+  el.innerHTML = html || '';
+}
+
+// Состояние отправки в облако: «сохраняю…», «сохранено» или ошибка с кнопкой «Повторить»
+function onCloudStatus(status) {
+  const el = $('sync-status');
+  if (el) el.textContent = { pending: '…', saving: 'сохраняю…', saved: '✓ сохранено', error: '⚠ не сохранено' }[status];
+  clearTimeout(cloud.retryTimer);
+  if (status === 'error') {
+    showCloudBanner('<span>⚠ Нет связи с облаком — изменения пока только на этом устройстве. ' +
+      'Если сервер «заснул», его будят в панели Supabase.</span><button class="pill-btn" data-act="cloud-retry">Повторить</button>');
+    cloud.retryTimer = setTimeout(() => cloud.storage.flush(), 15000);
+  } else if (status === 'saved') {
+    showCloudBanner('');
+  }
+}
+
+// Ошибка при запуске: вход не удался или данные не загрузились — работаем с данными браузера
+function showStartupCloudError() {
+  if (!cloud.error) return;
+  const signedIn = cloud.user && !cloud.storage;
+  showCloudBanner(`<span>⚠ ${signedIn ? 'Не удалось загрузить данные из облака' : 'Вход не удался'}: ${escapeHtml(cloud.error.message)}. ` +
+    'Сейчас открыты данные этого браузера.</span><button class="pill-btn" data-act="cloud-reload">Повторить</button>');
+}
+
+function initCloud() {
+  renderAccount();
+  showStartupCloudError();
+  document.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'sign-in') signIn();
+    else if (act === 'sign-out') signOut();
+    else if (act === 'cloud-retry') cloud.storage?.flush();
+    else if (act === 'cloud-reload') location.reload();
+  });
+  // свернули вкладку — отправляем сразу; закрывают с несохранённым — браузер переспросит
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cloud.storage?.flush(); });
+  addEventListener('beforeunload', (e) => { if (cloud.storage?.pending()) e.preventDefault(); });
+}
+
 function init() {
   buildKeyboard();
   initWordTools();
@@ -2170,8 +2290,10 @@ function init() {
   syncVoiceUi();
 
   initPages();
+  initCloud();
   addEventListener('hashchange', route);
   route();
 }
 
-init();
+// Сначала решаем, откуда данные (браузер или облако), потом рисуем сайт
+connectCloud().finally(init);
