@@ -59,19 +59,131 @@
     };
   }
 
-  // lessons, groups, notes — LESSONS, GROUPS и NOTES из data.js
-  function createCore({ lessons, groups, notes, storage }) {
+  // Свой модуль считается фразовым, если больше половины терминов — из трёх слов и длиннее
+  const kindOf = (cards) =>
+    (cards.filter((c) => c.term.split(/\s+/).length >= 3).length * 2 > cards.length ? 'phrases' : 'words');
+
+  const title = (s) => {
+    const t = String(s ?? '').trim();
+    if (!t) throw new Error('Нужно название');
+    return t;
+  };
+
+  // Поля карточки: термин и определение есть всегда, пустые необязательные поля не хранятся
+  const OPTIONAL = ['example', 'exampleTranslation', 'explanation'];
+  function applyCardFields(card, fields) {
+    if ('term' in fields) {
+      card.term = String(fields.term ?? '').trim();
+      if (!card.term) throw new Error('Нужен термин');
+    }
+    if ('definition' in fields) card.definition = String(fields.definition ?? '').trim();
+    for (const k of OPTIONAL) {
+      if (!(k in fields)) continue;
+      const v = String(fields[k] ?? '').trim();
+      if (v) card[k] = v; else delete card[k];
+    }
+    return card;
+  }
+
+  // lessons, groups, notes — LESSONS, GROUPS и NOTES из data.js;
+  // newId — источник уникальных id для своих папок, модулей и карточек
+  function createCore({ lessons, groups, notes, storage, newId }) {
     const folders = groups.map((g) => ({ id: g.id, title: g.title, builtIn: true }));
     const modules = Object.entries(lessons).map(([id, lesson]) => builtInModule(id, lesson, notes));
     const byId = new Map(modules.map((m) => [m.id, m]));
+    const builtInFolderIds = new Set(folders.map((f) => f.id));
 
     // «Мои слова» хранятся под ключом study как [[термин, перевод], …] — формат прежней версии сайта
     const study = () => storage.get('study', []);
 
+    // Свои папки и модули — под ключом own: { folders: [{ id, title }], modules: [{ id, title, folderId, langs, cards }] }.
+    // Приставки f_, m_, c_ не дают id совпасть со встроенными
+    const loadOwn = () => storage.get('own', { folders: [], modules: [] });
+    const editOwn = (fn) => { const own = loadOwn(); const r = fn(own); storage.set('own', own); return r; };
+    const ownView = (m) => ({ ...m, icon: '📘', kind: kindOf(m.cards), builtIn: false });
+    const folderExists = (own, id) => builtInFolderIds.has(id) || own.folders.some((f) => f.id === id);
+
+    function ownFolder(own, id) {
+      if (builtInFolderIds.has(id)) throw new Error('Встроенную папку нельзя изменить');
+      const f = own.folders.find((x) => x.id === id);
+      if (!f) throw new Error(`Нет папки ${id}`);
+      return f;
+    }
+    function ownModule(own, id) {
+      if (byId.has(id)) throw new Error('Встроенный модуль нельзя изменить');
+      const m = own.modules.find((x) => x.id === id);
+      if (!m) throw new Error(`Нет модуля ${id}`);
+      return m;
+    }
+    function ownCard(m, cardId) {
+      const c = m.cards.find((x) => x.id === cardId);
+      if (!c) throw new Error(`Нет карточки ${cardId}`);
+      return c;
+    }
+
+    const allModules = () => [...modules, ...loadOwn().modules.map(ownView)];
+
     return {
-      folders: () => folders,
-      modules: (folderId) => (folderId ? modules.filter((m) => m.folderId === folderId) : modules),
-      module: (id) => byId.get(id) || null,
+      folders: () => [...folders, ...loadOwn().folders.map((f) => ({ ...f, builtIn: false }))],
+      modules: (folderId) => (folderId ? allModules().filter((m) => m.folderId === folderId) : allModules()),
+      module(id) {
+        if (byId.has(id)) return byId.get(id);
+        const m = loadOwn().modules.find((x) => x.id === id);
+        return m ? ownView(m) : null;
+      },
+
+      createFolder: (name) => editOwn((own) => {
+        const f = { id: `f_${newId()}`, title: title(name) };
+        own.folders.push(f);
+        return { ...f, builtIn: false };
+      }),
+      renameFolder: (id, name) => editOwn((own) => { ownFolder(own, id).title = title(name); }),
+      // Вместе с папкой удаляются её модули
+      deleteFolder: (id) => editOwn((own) => {
+        ownFolder(own, id);
+        own.folders = own.folders.filter((f) => f.id !== id);
+        own.modules = own.modules.filter((m) => m.folderId !== id);
+      }),
+
+      createModule: ({ title: name, folderId }) => editOwn((own) => {
+        if (!folderExists(own, folderId)) throw new Error(`Нет папки ${folderId}`);
+        const m = { id: `m_${newId()}`, title: title(name), folderId, langs: { term: 'en', definition: 'ru' }, cards: [] };
+        own.modules.push(m);
+        return ownView(m);
+      }),
+      // Переименовать и/или перенести в другую папку
+      updateModule: (id, changes) => editOwn((own) => {
+        const m = ownModule(own, id);
+        if ('folderId' in changes && !folderExists(own, changes.folderId)) throw new Error(`Нет папки ${changes.folderId}`);
+        if ('title' in changes) m.title = title(changes.title);
+        if ('folderId' in changes) m.folderId = changes.folderId;
+      }),
+      deleteModule: (id) => editOwn((own) => {
+        ownModule(own, id);
+        own.modules = own.modules.filter((m) => m.id !== id);
+      }),
+
+      addCard: (moduleId, fields) => editOwn((own) => {
+        const m = ownModule(own, moduleId);
+        const card = applyCardFields({ id: `c_${newId()}`, term: '', definition: '' }, { definition: '', ...fields, term: fields.term });
+        m.cards.push(card);
+        return { ...card };
+      }),
+      updateCard: (moduleId, cardId, fields) => editOwn((own) => {
+        applyCardFields(ownCard(ownModule(own, moduleId), cardId), fields);
+      }),
+      deleteCard: (moduleId, cardId) => editOwn((own) => {
+        const m = ownModule(own, moduleId);
+        ownCard(m, cardId);
+        m.cards = m.cards.filter((c) => c.id !== cardId);
+      }),
+      // Поставить карточку на место index (за краями — в начало или конец)
+      moveCard: (moduleId, cardId, index) => editOwn((own) => {
+        const m = ownModule(own, moduleId);
+        const card = ownCard(m, cardId);
+        m.cards = m.cards.filter((c) => c !== card);
+        m.cards.splice(Math.max(0, Math.min(index, m.cards.length)), 0, card);
+      }),
 
       // Перевод отдельных слов из словарных модулей: слово → перевод.
       // Неправильные глаголы — по каждой форме («went» → «идти (go went gone)»),

@@ -68,6 +68,7 @@ const { normalize, compareDictation } = KlavaCore;
 const core = KlavaCore.createCore({
   lessons: LESSONS, groups: GROUPS, notes: NOTES,
   storage: KlavaCore.browserStorage(() => localStorage, 'klava:'),
+  newId: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
 });
 const store = core.settings;
 
@@ -160,8 +161,8 @@ function render() {
     const empty = {
       custom: 'Вставьте текст ниже',
       mine: 'Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.',
-    }[state.lessonId];
-    textEl.innerHTML = empty ? `<span class="next">${empty}</span>` : '';
+    }[state.lessonId] ?? 'В модуле пока нет карточек.';
+    textEl.innerHTML = `<span class="next">${empty}</span>`;
     $('typed').innerHTML = '';
     $('translation').textContent = '';
     renderLookup();
@@ -894,16 +895,27 @@ function renderExampleList(lk) {
   return `<div class="lookup-body">${head}${body}</div>`;
 }
 
-// ---------- Экраны: главная, папка, модуль, тренажёр ----------
+// ---------- Экраны: главная, папка, модуль, редактор, тренажёр ----------
 // Адреса: #/ — главная, #/folder/<id> — папка, #/module/<id> — модуль,
-// #/module/<id>/type — набор по модулю, #/custom — «Свой текст»
+// #/module/<id>/type — набор по модулю, #/module/<id>/edit — правка своего модуля,
+// #/new или #/new/<папка> — новый модуль, #/custom — «Свой текст»
 const SPECIAL = {
   mine: { title: 'Мои слова', group: 'own', icon: '⭐' },
   custom: { title: 'Свой текст', group: 'own', icon: '📝' },
 };
-const FOLDERS = [...core.folders(), { id: 'own', title: 'Своё' }];
-const folderOf = (id) => FOLDERS.find((f) => f.id === id);
-// Название, значок и папка — для встроенного модуля или особого урока
+// Папка «Своё» — для «Моих слов» и «Своего текста», в ядре её нет
+const OWN_SPECIAL = { id: 'own', title: 'Своё', builtIn: true };
+// Порядок на главной: сначала свои папки, потом встроенные, в конце «Своё»
+const allFolders = () => {
+  const list = core.folders();
+  return [...list.filter((f) => !f.builtIn), ...list.filter((f) => f.builtIn), OWN_SPECIAL];
+};
+const folderOf = (id) => allFolders().find((f) => f.id === id);
+// Папки, куда можно положить свой модуль
+const moduleFolders = () => allFolders().filter((f) => f !== OWN_SPECIAL);
+const isOwnModule = (id) => core.module(id)?.builtIn === false;
+const escapeAttr = (s) => escapeHtml(s).replace(/"/g, '&quot;');
+// Название, значок и папка — для модуля или особого урока
 const lessonInfo = (id) => {
   const m = core.module(id);
   return m ? { title: m.title, icon: m.icon, group: m.folderId } : SPECIAL[id];
@@ -935,34 +947,102 @@ const lessonTile = (id) => { const l = lessonInfo(id); return tile(lessonHref(id
 const folderTile = (f) => {
   const ids = folderLessons(f.id);
   const icons = ids.slice(0, 4).map((id) => lessonInfo(id).icon).join(' ');
-  return tile(`#/folder/${f.id}`, '📁', f.title, `${plural(ids.length, 'модуль', 'модуля', 'модулей')} · ${icons}`);
+  return tile(`#/folder/${f.id}`, f.builtIn ? '📁' : '🗂️', f.title,
+    plural(ids.length, 'модуль', 'модуля', 'модулей') + (icons ? ` · ${icons}` : ''));
 };
-const tilesSection = (title, tiles) =>
-  `<section class="tiles-section"><h2>${escapeHtml(title)}</h2><div class="tiles">${tiles.join('')}</div></section>`;
+const tilesSection = (title, tiles, actions = '') =>
+  `<section class="tiles-section"><div class="section-head"><h2>${escapeHtml(title)}</h2>${actions}</div>` +
+  `<div class="tiles">${tiles.join('')}</div></section>`;
+const actionBtn = (act, label, cls = '') => `<button class="pill-btn ${cls}" data-act="${act}">${label}</button>`;
+const actionLink = (href, label) => `<a class="pill-btn" href="${href}">${label}</a>`;
 
 function renderHome() {
   const recent = core.recent().filter((id) => lessonInfo(id));
   return (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
-    tilesSection('Папки', FOLDERS.map(folderTile));
+    tilesSection('Папки', allFolders().map(folderTile),
+      `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}</div>`);
 }
 
 function renderFolder(folderId) {
-  return tilesSection(folderOf(folderId).title, folderLessons(folderId).map(lessonTile));
+  const f = folderOf(folderId);
+  const ids = folderLessons(folderId);
+  let actions = '';
+  if (f !== OWN_SPECIAL) actions += actionLink(`#/new/${folderId}`, '+ Модуль');
+  if (!f.builtIn) actions += actionBtn('rename-folder', 'Переименовать') + actionBtn('delete-folder', 'Удалить', 'danger');
+  return tilesSection(f.title, ids.map(lessonTile), actions && `<div class="page-actions">${actions}</div>`) +
+    (ids.length ? '' : '<p class="empty">В папке пока нет модулей.</p>');
 }
 
 function renderModule(id) {
   const l = lessonInfo(id);
   const cards = lessonCards(id);
+  const own = isOwnModule(id);
+  const emptyText = id === 'mine'
+    ? 'Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.'
+    : 'В модуле пока нет карточек.';
   const list = cards.length
     ? `<ol class="card-list">${cards.map((c) =>
       `<li><span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
-    : '<p class="empty">Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.</p>';
+    : `<p class="empty">${emptyText}</p>`;
+  const actions = own
+    ? `<div class="page-actions">${actionLink(`#/module/${id}/edit`, '✏️ Изменить')}${actionBtn('delete-module', 'Удалить', 'danger')}</div>`
+    : '';
+  const typeMode = '<span class="mode-icon">⌨️</span><span class="tile-text"><b>Набор</b>' +
+    '<small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span>';
   return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
-    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div></section>` +
+    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div>${actions}</section>` +
     '<div class="modes">' +
-    `<a class="mode-btn" href="#/module/${id}/type"><span class="mode-icon">⌨️</span>` +
-    '<span class="tile-text"><b>Набор</b><small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span></a>' +
+    (cards.length ? `<a class="mode-btn" href="#/module/${id}/type">${typeMode}</a>` : `<span class="mode-btn disabled">${typeMode}</span>`) +
     `</div>${list}`;
+}
+
+// Выбор папки для своего модуля: свои папки, потом встроенные
+const folderSelect = (id, selected) =>
+  `<select id="${id}">${moduleFolders().map((f) =>
+    `<option value="${escapeAttr(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.title)}</option>`).join('')}</select>`;
+
+function renderNewModule(folderId) {
+  const selected = folderId || moduleFolders()[0].id;
+  return '<form id="new-module" class="form">' +
+    '<h1>Новый модуль</h1>' +
+    '<label class="field"><span>Название</span><input id="new-title" required placeholder="Например, «Слова из сериала»"></label>' +
+    `<label class="field"><span>Папка</span>${folderSelect('new-folder', selected)}</label>` +
+    '<button class="primary-btn">Создать и добавить карточки</button></form>';
+}
+
+// Строка карточки в редакторе. Без карточки — пустая строка внизу для новой
+function editCardRow(c, i) {
+  const input = (field, label, value = '') =>
+    `<label class="field"><span>${label}</span><input data-field="${field}" value="${escapeAttr(value)}"></label>`;
+  const main = `<div class="edit-main">${input('term', 'Термин', c?.term)}${input('definition', 'Определение', c?.definition)}</div>`;
+  if (!c) {
+    return `<li class="edit-card new"><span class="edit-num">+</span><div class="edit-fields">${main}` +
+      '<small class="edit-hint">Введите термин — карточка сохранится сама, перевод подставится автоматически</small></div>' +
+      '<div class="edit-tools"></div></li>';
+  }
+  const hasMore = c.example || c.exampleTranslation || c.explanation;
+  return `<li class="edit-card" data-card="${escapeAttr(c.id)}"><span class="edit-num">${i + 1}</span>` +
+    `<div class="edit-fields">${main}` +
+    `<details${hasMore ? ' open' : ''}><summary>Пример и объяснение</summary>` +
+    `${input('example', 'Пример', c.example)}${input('exampleTranslation', 'Перевод примера', c.exampleTranslation)}` +
+    `<label class="field"><span>Объяснение</span><textarea data-field="explanation" rows="2">${escapeHtml(c.explanation || '')}</textarea></label>` +
+    '</details></div>' +
+    '<div class="edit-tools">' +
+    '<button class="icon-btn" data-act="card-up" title="Выше">↑</button>' +
+    '<button class="icon-btn" data-act="card-down" title="Ниже">↓</button>' +
+    '<button class="icon-btn" data-act="card-delete" title="Удалить карточку">✕</button></div></li>';
+}
+
+const editCardList = (m) => `${m.cards.map(editCardRow).join('')}${editCardRow(null)}`;
+
+function renderEditModule(id) {
+  const m = core.module(id);
+  return `<div class="form" data-module="${escapeAttr(id)}">` +
+    '<div class="edit-head"><h1>Изменение модуля</h1>' +
+    `<a class="primary-btn" href="#/module/${id}">Готово</a></div>` +
+    `<label class="field"><span>Название</span><input id="edit-title" value="${escapeAttr(m.title)}"></label>` +
+    `<label class="field"><span>Папка</span>${folderSelect('edit-folder', m.folderId)}</label>` +
+    `<h2 class="edit-cards-title">Карточки</h2><ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol></div>`;
 }
 
 // Хлебные крошки над страницей: папка › модуль
@@ -975,7 +1055,12 @@ function renderCrumbs(items) {
 function parseRoute() {
   const [screen, id, mode] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   if (screen === 'folder' && folderOf(id)) return { screen, id };
-  if (screen === 'module' && id !== 'custom' && lessonInfo(id)) return { screen: mode === 'type' ? 'trainer' : 'module', id };
+  if (screen === 'module' && id !== 'custom' && lessonInfo(id)) {
+    if (mode === 'type') return { screen: 'trainer', id };
+    if (mode === 'edit' && isOwnModule(id)) return { screen: 'edit', id };
+    return { screen: 'module', id };
+  }
+  if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
   if (screen === 'custom') return { screen: 'trainer', id: 'custom' };
   return { screen: 'home' };
 }
@@ -992,11 +1077,21 @@ function route() {
   scrollTo(0, 0);
   if (onTrainer) { openTrainer(r.id); return; }
 
-  if (r.screen === 'module') {
+  if (r.screen === 'module' || r.screen === 'edit') {
     core.markOpened(r.id);
     const l = lessonInfo(r.id);
-    renderCrumbs([[`#/folder/${l.group}`, folderOf(l.group).title], [null, l.title]]);
-    $('page-body').innerHTML = renderModule(r.id);
+    const folderCrumb = [`#/folder/${l.group}`, folderOf(l.group).title];
+    if (r.screen === 'edit') {
+      renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Изменение']]);
+      $('page-body').innerHTML = renderEditModule(r.id);
+    } else {
+      renderCrumbs([folderCrumb, [null, l.title]]);
+      $('page-body').innerHTML = renderModule(r.id);
+    }
+  } else if (r.screen === 'new') {
+    renderCrumbs([[null, 'Новый модуль']]);
+    $('page-body').innerHTML = renderNewModule(r.id);
+    $('new-title').focus();
   } else if (r.screen === 'folder') {
     renderCrumbs([[null, folderOf(r.id).title]]);
     $('page-body').innerHTML = renderFolder(r.id);
@@ -1016,6 +1111,133 @@ function openTrainer(id) {
   $('back').href = id === 'custom' ? '#/' : `#/module/${id}`;
   $('back').title = id === 'custom' ? 'На главную' : 'К модулю';
   startLesson();
+}
+
+// ---------- Действия на страницах: папки, модули, редактор карточек ----------
+// Редактор сохраняет каждое поле сразу при выходе из него (событие change)
+const editorModule = () => $('page-body').querySelector('[data-module]')?.dataset.module;
+const cardRow = (cardId) => $('edit-cards').querySelector(`[data-card="${CSS.escape(cardId)}"]`);
+
+function renderEditCrumbs(id) {
+  const l = lessonInfo(id);
+  renderCrumbs([[`#/folder/${l.group}`, folderOf(l.group).title], [`#/module/${id}`, l.title], [null, 'Изменение']]);
+}
+
+// Пустое определение заполняем переводом термина, если пользователь не успел ввести своё
+function fillTranslation(moduleId, cardId, term) {
+  translate(term).then((tr) => {
+    const card = tr && core.module(moduleId)?.cards.find((c) => c.id === cardId);
+    if (!card || card.definition) return;
+    const input = editorModule() === moduleId && cardRow(cardId)?.querySelector('[data-field="definition"]');
+    if (input && input.value.trim()) return;
+    core.updateCard(moduleId, cardId, { definition: tr });
+    if (input) input.value = tr;
+  });
+}
+
+// Пустая строка внизу превращается в карточку на месте, без перерисовки:
+// фокус остаётся там, куда его перевёл пользователь
+function promoteNewRow(row, card, index) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = editCardRow(card, index);
+  const full = tpl.content.firstElementChild;
+  row.classList.remove('new');
+  row.dataset.card = card.id;
+  row.querySelector('.edit-num').textContent = index + 1;
+  row.querySelector('.edit-hint').replaceWith(full.querySelector('details'));
+  row.querySelector('.edit-tools').replaceWith(full.querySelector('.edit-tools'));
+  row.insertAdjacentHTML('afterend', editCardRow(null));
+}
+
+function onEditorChange(e) {
+  const id = editorModule();
+  const el = e.target;
+  if (!id) return;
+  if (el.id === 'edit-title') {
+    if (!el.value.trim()) { el.value = core.module(id).title; return; }
+    core.updateModule(id, { title: el.value });
+    renderEditCrumbs(id);
+    return;
+  }
+  if (el.id === 'edit-folder') {
+    core.updateModule(id, { folderId: el.value });
+    renderEditCrumbs(id);
+    return;
+  }
+  const field = el.dataset.field;
+  const row = el.closest('.edit-card');
+  if (!field || !row) return;
+  const defInput = row.querySelector('[data-field="definition"]');
+
+  if (row.classList.contains('new')) {
+    // новая карточка появляется, когда введён термин
+    const term = row.querySelector('[data-field="term"]').value;
+    if (!term.trim()) return;
+    const card = core.addCard(id, { term, definition: defInput.value });
+    promoteNewRow(row, card, core.module(id).cards.length - 1);
+    if (!card.definition) fillTranslation(id, card.id, card.term);
+    return;
+  }
+
+  const cardId = row.dataset.card;
+  if (field === 'term' && !el.value.trim()) {
+    // без термина карточки не бывает: возвращаем прежний, удалить — кнопкой ✕
+    el.value = core.module(id).cards.find((c) => c.id === cardId).term;
+    return;
+  }
+  core.updateCard(id, cardId, { [field]: el.value });
+  if (field === 'term' && !defInput.value.trim()) fillTranslation(id, cardId, el.value.trim());
+}
+
+function onEditorCardAction(act, cardId) {
+  const id = editorModule();
+  const i = core.module(id).cards.findIndex((c) => c.id === cardId);
+  if (act === 'card-up') core.moveCard(id, cardId, i - 1);
+  if (act === 'card-down') core.moveCard(id, cardId, i + 1);
+  if (act === 'card-delete') core.deleteCard(id, cardId);
+  $('edit-cards').innerHTML = editCardList(core.module(id));
+  if (act !== 'card-delete') cardRow(cardId)?.querySelector(`[data-act="${act}"]`)?.focus();
+}
+
+function onPageAction(e) {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const r = parseRoute();
+  if (act === 'new-folder') {
+    const name = prompt('Название новой папки');
+    if (name && name.trim()) location.hash = `#/folder/${core.createFolder(name).id}`;
+  } else if (act === 'rename-folder') {
+    const name = prompt('Новое название папки', folderOf(r.id).title);
+    if (name && name.trim()) { core.renameFolder(r.id, name); route(); }
+  } else if (act === 'delete-folder') {
+    const n = core.modules(r.id).length;
+    if (n && !confirm(`Удалить папку «${folderOf(r.id).title}» и ${plural(n, 'модуль', 'модуля', 'модулей')} в ней?`)) return;
+    core.deleteFolder(r.id);
+    location.hash = '#/';
+  } else if (act === 'delete-module') {
+    const l = lessonInfo(r.id);
+    if (!confirm(`Удалить модуль «${l.title}» со всеми карточками?`)) return;
+    core.deleteModule(r.id);
+    location.hash = `#/folder/${l.group}`;
+  } else if (act.startsWith('card-')) {
+    onEditorCardAction(act, btn.closest('.edit-card').dataset.card);
+  }
+}
+
+function onNewModule(e) {
+  if (e.target.id !== 'new-module') return;
+  e.preventDefault();
+  const titleInput = $('new-title');
+  if (!titleInput.value.trim()) { titleInput.value = ''; titleInput.reportValidity(); return; }
+  const m = core.createModule({ title: titleInput.value, folderId: $('new-folder').value });
+  location.hash = `#/module/${m.id}/edit`;
+}
+
+function initPages() {
+  $('page-body').addEventListener('click', onPageAction);
+  $('page-body').addEventListener('change', onEditorChange);
+  $('page-body').addEventListener('submit', onNewModule);
 }
 
 // Ушли из тренажёра: замолчать и убрать всплывающее
@@ -1226,6 +1448,7 @@ function init() {
   }
   syncVoiceUi();
 
+  initPages();
   addEventListener('hashchange', route);
   route();
 }

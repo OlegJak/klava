@@ -135,6 +135,68 @@ button { padding: 6px 14px; cursor: pointer; }
 .card-def { color: var(--muted); }
 .empty { color: var(--muted); }
 
+/* Действия на страницах */
+.section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.section-head h2 { margin-right: auto; }
+.page-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+a.pill-btn {
+  display: inline-block; color: var(--text); text-decoration: none;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.pill-btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+.module-head .page-actions { margin-left: auto; }
+.mode-btn.disabled { opacity: .5; cursor: not-allowed; }
+.mode-btn.disabled:hover { border-color: var(--line); background: var(--panel); }
+.primary-btn {
+  display: inline-block; padding: 8px 18px;
+  color: #fff; text-decoration: none; font-weight: 600;
+  background: var(--accent); border: 1px solid var(--accent); border-radius: 8px;
+}
+.primary-btn:hover { filter: brightness(1.08); }
+
+/* Формы: новый модуль, редактор */
+.form { display: flex; flex-direction: column; gap: 14px; max-width: 720px; margin-top: 16px; }
+.form h1 { margin: 0; font-size: 24px; }
+.form > .primary-btn { align-self: flex-start; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field > span { font-size: 12px; color: var(--muted); }
+input {
+  font: inherit; color: var(--text);
+  padding: 7px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field textarea { padding: 7px 10px; resize: vertical; }
+.edit-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.edit-cards-title {
+  margin: 8px 0 0; font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+}
+.edit-cards { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.edit-card {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.edit-card.new { border-style: dashed; }
+.edit-num { flex: none; width: 22px; padding-top: 24px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.edit-fields { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.edit-main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.edit-card details { display: flex; flex-direction: column; gap: 8px; }
+.edit-card details[open] { display: flex; }
+.edit-card summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.edit-card details .field { margin-top: 8px; }
+.edit-hint { color: var(--muted); font-size: 12px; }
+.edit-tools { flex: none; width: 32px; display: flex; flex-direction: column; align-items: center; padding-top: 18px; }
+.edit-tools .icon-btn { font-size: 15px; color: var(--muted); }
+.edit-tools .icon-btn:hover { color: var(--accent); }
+.edit-tools [data-act="card-delete"]:hover { color: var(--bad); }
+
 .icon-btn { padding: 4px 8px; border: none; background: none; font-size: 18px; }
 
 .stats { margin-left: auto; display: flex; gap: 16px; color: var(--muted); }
@@ -399,4 +461,7 @@ kbd {
   .crumbs { order: 3; flex-basis: 100%; }
   .theme-btn { margin-left: auto; }
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
+  .edit-main { grid-template-columns: 1fr; }
+  .module-head { flex-wrap: wrap; }
+  .module-head .page-actions { margin-left: 0; width: 100%; }
 }

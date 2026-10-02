@@ -32,7 +32,9 @@ const fixture = () => ({
   },
 });
 
-const makeCore = (overrides = {}) => createCore({ ...fixture(), storage: memoryStorage(), ...overrides });
+// Предсказуемые id для своих папок, модулей и карточек
+const counter = () => { let n = 0; return () => String(++n); };
+const makeCore = (overrides = {}) => createCore({ ...fixture(), storage: memoryStorage(), newId: counter(), ...overrides });
 
 // ---------- Каталог ----------
 
@@ -125,6 +127,143 @@ test('настоящие уроки из data.js загружаются в ка�
       if (c.explanation) assert.ok(!/^[a-z0-9_]+$/.test(c.explanation), `объяснение «${c.explanation}» в ${m.id}`);
     }
   }
+});
+
+// ---------- Свои папки и модули ----------
+
+test('своя папка: создать, переименовать; появляется после встроенных', () => {
+  const core = makeCore();
+  const f = core.createFolder('  Работа  ');
+  assert.equal(f.title, 'Работа');
+  assert.equal(f.builtIn, false);
+  assert.deepEqual(core.folders().map((x) => x.id), ['words', 'grammar', f.id]);
+  core.renameFolder(f.id, 'Работа и учёба');
+  assert.equal(core.folders().find((x) => x.id === f.id).title, 'Работа и учёба');
+});
+
+test('папке и модулю нужно непустое название', () => {
+  const core = makeCore();
+  assert.throws(() => core.createFolder('   '));
+  const f = core.createFolder('Папка');
+  assert.throws(() => core.renameFolder(f.id, ''));
+  assert.throws(() => core.createModule({ title: ' ', folderId: f.id }));
+});
+
+test('встроенные папки и модули менять нельзя', () => {
+  const core = makeCore();
+  assert.throws(() => core.renameFolder('words', 'X'));
+  assert.throws(() => core.deleteFolder('words'));
+  assert.throws(() => core.updateModule('basic', { title: 'X' }));
+  assert.throws(() => core.deleteModule('basic'));
+  assert.throws(() => core.addCard('basic', { term: 'dog', definition: 'собака' }));
+  assert.throws(() => core.deleteCard('basic', core.module('basic').cards[0].id));
+});
+
+test('свой модуль: создать в своей или встроенной папке', () => {
+  const core = makeCore();
+  const f = core.createFolder('Работа');
+  const m = core.createModule({ title: 'Встречи', folderId: f.id });
+  assert.deepEqual(
+    { title: m.title, folderId: m.folderId, builtIn: m.builtIn, langs: m.langs, cards: m.cards },
+    { title: 'Встречи', folderId: f.id, builtIn: false, langs: { term: 'en', definition: 'ru' }, cards: [] },
+  );
+  assert.deepEqual(core.modules(f.id).map((x) => x.id), [m.id]);
+  const g = core.createModule({ title: 'Мои времена', folderId: 'grammar' });
+  assert.deepEqual(core.modules('grammar').map((x) => x.id), ['cond', g.id]);
+  assert.throws(() => core.createModule({ title: 'X', folderId: 'nope' }));
+});
+
+test('свой модуль: переименовать, перенести в другую папку, удалить', () => {
+  const core = makeCore();
+  const a = core.createFolder('A');
+  const b = core.createFolder('B');
+  const m = core.createModule({ title: 'Модуль', folderId: a.id });
+  core.updateModule(m.id, { title: 'Новое имя', folderId: b.id });
+  assert.equal(core.module(m.id).title, 'Новое имя');
+  assert.deepEqual(core.modules(a.id), []);
+  assert.deepEqual(core.modules(b.id).map((x) => x.id), [m.id]);
+  assert.throws(() => core.updateModule(m.id, { folderId: 'nope' }));
+  core.deleteModule(m.id);
+  assert.equal(core.module(m.id), null);
+});
+
+test('удаление папки удаляет и её модули', () => {
+  const core = makeCore();
+  const f = core.createFolder('Папка');
+  const m = core.createModule({ title: 'Модуль', folderId: f.id });
+  const other = core.createModule({ title: 'Другой', folderId: 'words' });
+  core.deleteFolder(f.id);
+  assert.equal(core.folders().some((x) => x.id === f.id), false);
+  assert.equal(core.module(m.id), null);
+  assert.notEqual(core.module(other.id), null);
+});
+
+test('карточки своего модуля: добавить, изменить, удалить', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Модуль', folderId: 'words' });
+  const c = core.addCard(m.id, {
+    term: ' dog ', definition: 'собака', example: 'The dog barks.', exampleTranslation: 'Собака лает.', explanation: 'Существительное',
+  });
+  assert.deepEqual(core.module(m.id).cards, [{
+    id: c.id, term: 'dog', definition: 'собака', example: 'The dog barks.', exampleTranslation: 'Собака лает.', explanation: 'Существительное',
+  }]);
+  core.updateCard(m.id, c.id, { definition: 'пёс', example: '' });
+  const [updated] = core.module(m.id).cards;
+  assert.equal(updated.definition, 'пёс');
+  assert.equal(updated.example, undefined); // пустое необязательное поле не хранится
+  assert.equal(updated.term, 'dog');
+  core.deleteCard(m.id, c.id);
+  assert.deepEqual(core.module(m.id).cards, []);
+});
+
+test('у карточки обязателен термин', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Модуль', folderId: 'words' });
+  assert.throws(() => core.addCard(m.id, { term: '  ', definition: 'пусто' }));
+  const c = core.addCard(m.id, { term: 'cat' });
+  assert.equal(core.module(m.id).cards[0].definition, '');
+  assert.throws(() => core.updateCard(m.id, c.id, { term: '' }));
+});
+
+test('карточки своего модуля можно переставлять', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Модуль', folderId: 'words' });
+  const [a, b, c] = ['a', 'b', 'c'].map((term) => core.addCard(m.id, { term }));
+  core.moveCard(m.id, c.id, 0);
+  assert.deepEqual(core.module(m.id).cards.map((x) => x.term), ['c', 'a', 'b']);
+  core.moveCard(m.id, c.id, 99);
+  assert.deepEqual(core.module(m.id).cards.map((x) => x.term), ['a', 'b', 'c']);
+  assert.notEqual(a.id, b.id);
+});
+
+test('вид своего модуля: фразы, если больше половины терминов — из трёх слов и длиннее', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Модуль', folderId: 'words' });
+  assert.equal(core.module(m.id).kind, 'words');
+  core.addCard(m.id, { term: 'make sense' });
+  core.addCard(m.id, { term: 'I have never been there.' });
+  assert.equal(core.module(m.id).kind, 'words');
+  core.addCard(m.id, { term: 'See you later, alligator.' });
+  assert.equal(core.module(m.id).kind, 'phrases');
+});
+
+test('свои папки и модули сохраняются в хранилище', () => {
+  const storage = memoryStorage();
+  const core = makeCore({ storage });
+  const f = core.createFolder('Папка');
+  const m = core.createModule({ title: 'Модуль', folderId: f.id });
+  core.addCard(m.id, { term: 'dog', definition: 'собака' });
+  const again = makeCore({ storage, newId: counter() });
+  assert.equal(again.folders().find((x) => x.id === f.id).title, 'Папка');
+  assert.deepEqual(again.module(m.id).cards.map((c) => c.term), ['dog']);
+});
+
+test('id своих папок, модулей и карточек не пересекаются со встроенными', () => {
+  const core = makeCore({ newId: () => 'basic' });
+  const f = core.createFolder('Папка');
+  assert.notEqual(f.id, 'basic');
+  const m = core.createModule({ title: 'Модуль', folderId: f.id });
+  assert.notEqual(m.id, 'basic');
 });
 
 // ---------- «Мои слова» и настройки ----------
