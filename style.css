@@ -1,15 +1,23 @@
+/* Палитра в духе Quizlet: серо-голубой фон, белые карточки с тенью, индиго */
 :root {
-  --bg: #f7f7f5;
+  --bg: #f6f7fb;
   --panel: #ffffff;
-  --text: #2b2b2b;
-  --muted: #8a8a8a;
-  --line: #dcdcdc;
-  --ok: #3a9d5d;
-  --bad: #d64545;
-  --accent: #3b7dd8;
-  --accent-soft: #eef4fd;
+  --text: #282e3e;
+  --muted: #586380;
+  --line: #d9dde8;
+  --ok: #18ae79;
+  --bad: #e24f3b;
+  --accent: #4255ff;
+  --accent-hover: #3a4ae6;
+  --accent-soft: #edefff;
+  --on-accent: #ffffff;
+  --shadow: 0 .25rem 1rem rgb(40 46 62 / .08);
+  --shadow-hover: 0 .5rem 1.5rem rgb(40 46 62 / .14);
+  --radius: 12px;
+  /* Цвета режимов */
+  --m-cards: #4255ff; --m-learn: #3ccfcf; --m-test: #ffcd1f; --m-match: #ff7eb6; --m-type: #18ae79;
   --key: #ffffff;
-  --key-shadow: #c9c9c9;
+  --key-shadow: #c9cede;
   /* Цвета зон пальцев */
   --f-lp: #f6d6e0; --f-lr: #fbe3c4; --f-lm: #fdf3b8; --f-li: #d5f0cf;
   --f-ri: #cfe6f7; --f-rm: #e0d8f5; --f-rr: #f5d9ef; --f-rp: #d8eee9;
@@ -17,17 +25,21 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #1d1f22;
-  --panel: #26292d;
-  --text: #e4e4e4;
-  --muted: #8f949a;
-  --line: #3a3e44;
-  --ok: #5cc27f;
-  --bad: #ff6b6b;
-  --accent: #6ea8ff;
-  --accent-soft: #263447;
-  --key: #2f3338;
-  --key-shadow: #15171a;
+  --bg: #0a092d;
+  --panel: #2e3856;
+  --text: #f6f7fb;
+  --muted: #a8b1cf;
+  --line: #4a5579;
+  --ok: #3ccf97;
+  --bad: #ff7a66;
+  --accent: #6b7bff;
+  --accent-hover: #8290ff;
+  --accent-soft: #303d7a;
+  --on-accent: #ffffff;
+  --shadow: 0 .25rem 1rem rgb(0 0 0 / .3);
+  --shadow-hover: 0 .5rem 1.5rem rgb(0 0 0 / .45);
+  --key: #39446a;
+  --key-shadow: #151a33;
   --f-lp: #5a3542; --f-lr: #5c4630; --f-lm: #5a5430; --f-li: #35523a;
   --f-ri: #2f4a5e; --f-rm: #433c5e; --f-rr: #573a52; --f-rp: #30524b;
   --f-th: #3a3e44;
@@ -40,18 +52,19 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.45 "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Шапка на всю ширину, содержимое — по ширине страницы */
 .top {
+  position: sticky; top: 0; z-index: 15;
   display: flex;
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 10px max(16px, calc((100% - 1040px) / 2));
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--line);
 }
 
 
@@ -88,7 +101,12 @@ button { padding: 6px 14px; cursor: pointer; }
 .lesson-name b { font-size: 14px; font-weight: 600; }
 
 /* Страницы: главная, папка, модуль */
-.brand { font-weight: 700; font-size: 17px; color: var(--text); text-decoration: none; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 19px; color: var(--text); text-decoration: none; white-space: nowrap; }
+.brand-mark {
+  width: 32px; height: 32px; display: grid; place-items: center;
+  color: var(--on-accent); background: var(--accent); border-radius: 50%;
+  font-size: 17px; font-weight: 800;
+}
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; color: var(--muted); }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--accent); }
@@ -663,6 +681,115 @@ kbd {
 }
 .result h2 { margin-top: 0; }
 
+/* ---------- Оформление в духе Quizlet ----------
+   Карточки — белые, без рамок, с мягкой тенью; кнопки — «пилюли»; у каждого режима свой цвет */
+.page, main { max-width: 1040px; }
+h1, h2, .flash-text, .test-prompt { letter-spacing: -.01em; }
+
+select, textarea, input { border-radius: 8px; border-width: 2px; }
+button { border-radius: 8px; font-weight: 600; }
+
+.tile, .mode-btn, .card-list, .face, .learn-card, .test-q, .test-r, .flash-done, .edit-card,
+.form fieldset, .opt, .voice-card, .keyboard, .today-banner.calm, .typed, .lesson-btn {
+  border-color: transparent;
+  box-shadow: var(--shadow);
+}
+.tile, .mode-btn { border-radius: var(--radius); }
+.tile, .mode-btn, .lesson-btn {
+  position: relative; overflow: hidden;
+  transition: transform .15s, box-shadow .15s, background .15s;
+}
+/* при наведении карточка приподнимается, снизу — полоска цвета */
+.tile::after, .mode-btn::after, .lesson-btn::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+  background: var(--mode-color, var(--accent)); transform: scaleY(0); transform-origin: bottom; transition: transform .15s;
+}
+.tile:hover, .mode-btn:hover, .lesson-btn:hover {
+  transform: translateY(-2px); box-shadow: var(--shadow-hover);
+  background: var(--panel); border-color: transparent;
+}
+.tile:hover::after, .mode-btn:hover::after, .lesson-btn:hover::after { transform: scaleY(1); }
+.mode-btn.disabled:hover { transform: none; box-shadow: var(--shadow); }
+.mode-btn.disabled::after { display: none; }
+
+.tile { padding: 16px; }
+.tile-text b { font-size: 16px; font-weight: 700; }
+.tile-text small { font-size: 13px; }
+.tile-icon {
+  width: 44px; height: 44px; display: grid; place-items: center;
+  border-radius: 10px; background: var(--accent-soft); font-size: 22px;
+}
+
+/* Режимы: цветной значок и полоска */
+.mode-btn { padding: 16px; gap: 14px; }
+.mode-btn[data-mode="cards"] { --mode-color: var(--m-cards); }
+.mode-btn[data-mode="learn"] { --mode-color: var(--m-learn); }
+.mode-btn[data-mode="test"] { --mode-color: var(--m-test); }
+.mode-btn[data-mode="match"] { --mode-color: var(--m-match); }
+.mode-btn[data-mode="type"] { --mode-color: var(--m-type); }
+.mode-icon {
+  width: 48px; height: 48px; display: grid; place-items: center;
+  border-radius: 12px; font-size: 24px;
+  background: color-mix(in srgb, var(--mode-color, var(--accent)) 18%, transparent);
+}
+
+/* Заголовки разделов — крупные и тёмные, как у Quizlet */
+.tiles-section h2, .edit-cards-title {
+  margin: 28px 0 12px; font-size: 20px; font-weight: 800;
+  text-transform: none; letter-spacing: -.01em; color: var(--text);
+}
+.section-head { margin: 28px 0 12px; }
+.section-head h2 { margin: 0 auto 0 0; }
+.module-head h1, .form h1 { font-size: 30px; font-weight: 800; }
+.module-head .module-icon { width: 56px; height: 56px; font-size: 30px; border-radius: 14px; }
+
+/* Кнопки */
+.pill-btn {
+  padding: 7px 16px; border-radius: 200px; border: 2px solid var(--line);
+  font-size: 14px; font-weight: 700; background: var(--panel);
+}
+.pill-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--panel); }
+.primary-btn {
+  padding: 10px 22px; border-radius: 200px; border: none;
+  font-weight: 700; color: var(--on-accent); background: var(--accent);
+}
+.primary-btn:hover { filter: none; background: var(--accent-hover); }
+
+/* Главная: «Повторить сегодня» — яркий баннер */
+.today-banner { border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); }
+.today-banner .mode-icon { background: rgb(255 255 255 / .2); }
+.today-banner .tile-text b { font-size: 19px; font-weight: 800; }
+.today-go { padding: 8px 18px; border-radius: 200px; background: rgb(255 255 255 / .18); }
+.today-banner:hover .today-go { background: rgb(255 255 255 / .3); }
+
+/* Список карточек */
+.card-list { border-radius: var(--radius); }
+.card-list li { padding: 14px 18px; border-top-color: var(--bg); }
+.card-term { font-weight: 600; }
+
+/* Режимы занятий */
+.face { border-radius: 20px; }
+.flash-text { font-weight: 700; }
+.flash-btn { border-radius: 200px; border-width: 2px; box-shadow: var(--shadow); }
+.flash-track { height: 6px; border-radius: 3px; background: var(--line); }
+.seg { border: none; box-shadow: var(--shadow); }
+.seg-btn { font-weight: 700; }
+.learn-card, .test-q, .flash-done { border-radius: 16px; }
+.learn-choice, .test-option { border-width: 2px; border-radius: 12px; font-weight: 600; }
+.match-tile { border: 2px solid transparent; box-shadow: var(--shadow); font-weight: 600; }
+.match-tile.term { font-weight: 800; }
+.match-tile.selected { border-color: var(--accent); }
+
+.edit-card.new { border: 2px dashed var(--line); box-shadow: none; background: transparent; }
+.options-head h3 { font-size: 18px; font-weight: 800; text-transform: none; letter-spacing: -.01em; color: var(--text); }
+
+/* Тренажёр набора */
+.typed { border-radius: 10px; }
+.keyboard { border-radius: 16px; }
+.opt { border: 2px solid transparent; }
+.opt:has(input:checked) { border-color: var(--accent); }
+.explain, .lookup { border-radius: 10px; }
+
 @media (max-width: 640px) {
   .typed, .text { font-size: 17px; }
   .key { height: 34px; font-size: 11px; }
@@ -672,6 +799,7 @@ kbd {
   .crumbs { order: 3; flex-basis: 100%; }
   .theme-btn { margin-left: auto; }
   .account { order: 2; }
+  .top { position: static; }
   .account-email { max-width: 140px; }
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
   .card-list.with-dots li { grid-template-columns: 10px 1fr; column-gap: 10px; }

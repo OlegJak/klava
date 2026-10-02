@@ -1003,7 +1003,7 @@ function renderToday() {
     `<div><h1>Повторить сегодня</h1><small>${due.length ? `${plural(due.length, 'слово', 'слова', 'слов')} из ${plural(modules, 'модуля', 'модулей', 'модулей')}` : 'всё повторено'}</small></div></section>`;
   if (!due.length) return `${head}<p class="empty">На сегодня всё повторено. Возвращайтесь завтра или учите новые модули.</p>`;
   const mode = (path, icon, title, sub) =>
-    `<a class="mode-btn" href="#/today/${path}"><span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span></a>`;
+    `<a class="mode-btn" data-mode="${path}" href="#/today/${path}"><span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span></a>`;
   return head + '<div class="modes">' +
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
@@ -1069,7 +1069,7 @@ function renderModule(id) {
   const hiddenNote = hiddenNow ? '<p class="empty">Модуль скрыт: в папке его не видно.</p>' : '';
   const mode = (path, icon, title, sub) => {
     const inner = `<span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span>`;
-    return cards.length ? `<a class="mode-btn" href="#/module/${id}/${path}">${inner}</a>` : `<span class="mode-btn disabled">${inner}</span>`;
+    return cards.length ? `<a class="mode-btn" data-mode="${path}" href="#/module/${id}/${path}">${inner}</a>` : `<span class="mode-btn disabled" data-mode="${path}">${inner}</span>`;
   };
   return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
     `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}${statsLine}</small></div>${actions}</section>${hiddenNote}` +
