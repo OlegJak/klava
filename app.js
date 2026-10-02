@@ -960,14 +960,14 @@ function renderHome() {
   const recent = core.recent().filter((id) => lessonInfo(id));
   return (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
     tilesSection('Папки', allFolders().map(folderTile),
-      `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}</div>`);
+      `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}${actionLink('#/import', 'Импорт')}</div>`);
 }
 
 function renderFolder(folderId) {
   const f = folderOf(folderId);
   const ids = folderLessons(folderId);
   let actions = '';
-  if (f !== OWN_SPECIAL) actions += actionLink(`#/new/${folderId}`, '+ Модуль');
+  if (f !== OWN_SPECIAL) actions += actionLink(`#/new/${folderId}`, '+ Модуль') + actionLink(`#/import/folder/${folderId}`, 'Импорт');
   if (!f.builtIn) actions += actionBtn('rename-folder', 'Переименовать') + actionBtn('delete-folder', 'Удалить', 'danger');
   return tilesSection(f.title, ids.map(lessonTile), actions && `<div class="page-actions">${actions}</div>`) +
     (ids.length ? '' : '<p class="empty">В папке пока нет модулей.</p>');
@@ -985,7 +985,8 @@ function renderModule(id) {
       `<li><span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
     : `<p class="empty">${emptyText}</p>`;
   const actions = own
-    ? `<div class="page-actions">${actionLink(`#/module/${id}/edit`, '✏️ Изменить')}${actionBtn('delete-module', 'Удалить', 'danger')}</div>`
+    ? `<div class="page-actions">${actionLink(`#/module/${id}/edit`, '✏️ Изменить')}${actionLink(`#/import/module/${id}`, 'Импорт')}` +
+      `${actionBtn('delete-module', 'Удалить', 'danger')}</div>`
     : '';
   const typeMode = '<span class="mode-icon">⌨️</span><span class="tile-text"><b>Набор</b>' +
     '<small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span>';
@@ -1008,6 +1009,107 @@ function renderNewModule(folderId) {
     '<label class="field"><span>Название</span><input id="new-title" required placeholder="Например, «Слова из сериала»"></label>' +
     `<label class="field"><span>Папка</span>${folderSelect('new-folder', selected)}</label>` +
     '<button class="primary-btn">Создать и добавить карточки</button></form>';
+}
+
+// ---------- Импорт ----------
+// #/import — в новый модуль, #/import/folder/<папка> — в новый модуль этой папки,
+// #/import/module/<модуль> — дописать в свой модуль
+const ownModules = () => core.modules().filter((m) => !m.builtIn);
+
+function renderImport({ folderId, moduleId }) {
+  const radio = (name, value, label, checked) =>
+    `<label class="radio"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}><span>${label}</span></label>`;
+  const own = ownModules();
+  const toExisting = Boolean(moduleId);
+  return '<div id="import-form" class="form">' +
+    '<h1>Импорт карточек</h1>' +
+    '<label class="field"><span>Список</span><textarea id="imp-text" rows="8" ' +
+    'placeholder="Каждая карточка на своей строке, термин и определение через Tab — так копируют Quizlet («Экспорт») и таблицы"></textarea></label>' +
+    '<div class="imp-seps">' +
+    '<fieldset><legend>Между термином и определением</legend>' +
+    radio('imp-term', 'tab', 'Tab', true) + radio('imp-term', 'comma', 'Запятая') + radio('imp-term', 'semicolon', 'Точка с запятой') +
+    radio('imp-term', 'dash', 'Тире') + radio('imp-term', 'custom', 'Свой:') + '<input id="imp-term-custom" class="sep-input" maxlength="10">' +
+    '</fieldset>' +
+    '<fieldset><legend>Между карточками</legend>' +
+    radio('imp-card', 'newline', 'Новая строка', true) + radio('imp-card', 'semicolon', 'Точка с запятой') +
+    radio('imp-card', 'custom', 'Свой:') + '<input id="imp-card-custom" class="sep-input" maxlength="10">' +
+    '</fieldset></div>' +
+    '<fieldset class="imp-target"><legend>Куда</legend>' +
+    `<div class="imp-option">${radio('imp-target', 'new', 'Новый модуль', !toExisting)}` +
+    '<input id="imp-title" placeholder="Название модуля">' +
+    `${folderSelect('imp-folder', folderId || moduleFolders()[0].id)}</div>` +
+    (own.length ? `<div class="imp-option">${radio('imp-target', 'existing', 'Добавить в модуль', toExisting)}` +
+      `<select id="imp-module">${own.map((m) =>
+        `<option value="${escapeAttr(m.id)}"${m.id === moduleId ? ' selected' : ''}>${escapeHtml(m.title)}</option>`).join('')}</select></div>` : '') +
+    '</fieldset>' +
+    '<label class="radio"><input type="checkbox" id="imp-skip" checked><span>Пропустить повторы</span></label>' +
+    '<div id="imp-preview" class="imp-preview"></div>' +
+    '<button class="primary-btn" data-act="import-go" disabled>Импортировать</button></div>';
+}
+
+// Настройки импорта из формы и разобранный список
+function readImport() {
+  const val = (name) => document.querySelector(`[name="${name}"]:checked`)?.value;
+  const termSep = val('imp-term') === 'custom' ? $('imp-term-custom').value : val('imp-term');
+  const cardSep = val('imp-card') === 'custom' ? $('imp-card-custom').value : val('imp-card');
+  const target = val('imp-target');
+  const moduleId = target === 'existing' ? $('imp-module').value : null;
+  const existingTerms = moduleId ? core.module(moduleId).cards.map((c) => c.term) : [];
+  const parsed = KlavaCore.parseImport($('imp-text').value, { termSep, cardSep, existingTerms });
+  const skip = $('imp-skip').checked;
+  const toAdd = parsed.cards.filter((c) => !(skip && c.duplicate));
+  return { parsed, toAdd, moduleId };
+}
+
+function updateImportPreview() {
+  const { parsed, toAdd } = readImport();
+  const dups = parsed.cards.filter((c) => c.duplicate).length;
+  const badge = { module: 'уже в модуле', paste: 'повтор' };
+  const summary = [plural(parsed.cards.length, 'карточка', 'карточки', 'карточек'),
+    dups && plural(dups, 'повтор', 'повтора', 'повторов'),
+    parsed.unparsed.length && plural(parsed.unparsed.length, 'строка не разобрана', 'строки не разобраны', 'строк не разобрано'),
+  ].filter(Boolean).join(' · ');
+  $('imp-preview').innerHTML = !parsed.cards.length && !parsed.unparsed.length ? '' :
+    `<p class="imp-summary">${summary}</p>` +
+    (parsed.cards.length ? `<ol class="card-list">${parsed.cards.map((c) =>
+      `<li class="${c.duplicate ? 'dup' : ''}"><span class="card-term">${escapeHtml(c.term)}` +
+      `${c.duplicate ? ` <small class="dup-badge">${badge[c.duplicate]}</small>` : ''}</span>` +
+      `<span class="card-def">${escapeHtml(c.definition || '— переведётся автоматически')}</span></li>`).join('')}</ol>` : '') +
+    (parsed.unparsed.length ? '<p class="imp-summary">Не разобраны — нет разделителя или термина:</p>' +
+      `<ul class="imp-unparsed">${parsed.unparsed.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : '');
+  const go = document.querySelector('[data-act="import-go"]');
+  go.disabled = !toAdd.length;
+  go.textContent = toAdd.length ? `Импортировать ${plural(toAdd.length, 'карточку', 'карточки', 'карточек')}` : 'Импортировать';
+}
+
+function onImportInput(e) {
+  if (!e.target.closest('#import-form')) return;
+  // ввели свой разделитель — выбираем вариант «Свой»
+  const custom = { 'imp-term-custom': 'imp-term', 'imp-card-custom': 'imp-card' }[e.target.id];
+  if (custom) document.querySelector(`[name="${custom}"][value="custom"]`).checked = true;
+  if (e.target.id === 'imp-title' || e.target.id === 'imp-folder') document.querySelector('[name="imp-target"][value="new"]').checked = true;
+  if (e.target.id === 'imp-module') document.querySelector('[name="imp-target"][value="existing"]').checked = true;
+  updateImportPreview();
+}
+
+async function doImport() {
+  const { toAdd, moduleId: target } = readImport();
+  let moduleId = target;
+  if (!moduleId) {
+    const title = $('imp-title');
+    if (!title.value.trim()) { title.value = ''; title.required = true; title.reportValidity(); return; }
+    moduleId = core.createModule({ title: title.value, folderId: $('imp-folder').value }).id;
+  }
+  const added = core.addCards(moduleId, toAdd.map(({ term, definition }) => ({ term, definition })));
+  // пустые определения заполняем переводом, как в редакторе, и ждём его, чтобы модуль открылся уже с ним
+  const empty = added.filter((x) => !x.definition).slice(0, 100);
+  if (empty.length) {
+    const go = document.querySelector('[data-act="import-go"]');
+    go.disabled = true;
+    go.textContent = 'Перевожу…';
+    await Promise.all(empty.map((c) => fillTranslation(moduleId, c.id, c.term)));
+  }
+  location.hash = `#/module/${moduleId}`;
 }
 
 // Строка карточки в редакторе. Без карточки — пустая строка внизу для новой
@@ -1061,6 +1163,13 @@ function parseRoute() {
     return { screen: 'module', id };
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
+  if (screen === 'import') {
+    return {
+      screen,
+      folderId: id === 'folder' && moduleFolders().some((f) => f.id === mode) ? mode : null,
+      moduleId: id === 'module' && isOwnModule(mode) ? mode : null,
+    };
+  }
   if (screen === 'custom') return { screen: 'trainer', id: 'custom' };
   return { screen: 'home' };
 }
@@ -1088,6 +1197,10 @@ function route() {
       renderCrumbs([folderCrumb, [null, l.title]]);
       $('page-body').innerHTML = renderModule(r.id);
     }
+  } else if (r.screen === 'import') {
+    renderCrumbs([[null, 'Импорт']]);
+    $('page-body').innerHTML = renderImport(r);
+    $('imp-text').focus();
   } else if (r.screen === 'new') {
     renderCrumbs([[null, 'Новый модуль']]);
     $('page-body').innerHTML = renderNewModule(r.id);
@@ -1125,7 +1238,7 @@ function renderEditCrumbs(id) {
 
 // Пустое определение заполняем переводом термина, если пользователь не успел ввести своё
 function fillTranslation(moduleId, cardId, term) {
-  translate(term).then((tr) => {
+  return translate(term).then((tr) => {
     const card = tr && core.module(moduleId)?.cards.find((c) => c.id === cardId);
     if (!card || card.definition) return;
     const input = editorModule() === moduleId && cardRow(cardId)?.querySelector('[data-field="definition"]');
@@ -1220,6 +1333,8 @@ function onPageAction(e) {
     if (!confirm(`Удалить модуль «${l.title}» со всеми карточками?`)) return;
     core.deleteModule(r.id);
     location.hash = `#/folder/${l.group}`;
+  } else if (act === 'import-go') {
+    doImport();
   } else if (act.startsWith('card-')) {
     onEditorCardAction(act, btn.closest('.edit-card').dataset.card);
   }
@@ -1237,6 +1352,8 @@ function onNewModule(e) {
 function initPages() {
   $('page-body').addEventListener('click', onPageAction);
   $('page-body').addEventListener('change', onEditorChange);
+  $('page-body').addEventListener('change', onImportInput);
+  $('page-body').addEventListener('input', onImportInput);
   $('page-body').addEventListener('submit', onNewModule);
 }
 

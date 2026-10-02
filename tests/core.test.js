@@ -266,6 +266,65 @@ test('id своих папок, модулей и карточек не пере
   assert.notEqual(m.id, 'basic');
 });
 
+// ---------- Импорт ----------
+
+const { parseImport } = KlavaCore;
+
+test('импорт: формат Quizlet — термин Tab определение, карточка на строке', () => {
+  const r = parseImport('dog\tсобака\ncat\tкошка, кот\r\n');
+  assert.deepEqual(r.cards, [
+    { term: 'dog', definition: 'собака', duplicate: null },
+    { term: 'cat', definition: 'кошка, кот', duplicate: null },
+  ]);
+  assert.deepEqual(r.unparsed, []);
+});
+
+test('импорт: разделитель делит строку только по первому вхождению', () => {
+  const r = parseImport('way, путь, способ', { termSep: 'comma' });
+  assert.deepEqual(r.cards.map((c) => [c.term, c.definition]), [['way', 'путь, способ']]);
+});
+
+test('импорт: точка с запятой и тире; дефис внутри слова — не разделитель', () => {
+  assert.deepEqual(parseImport('dog; собака', { termSep: 'semicolon' }).cards[0].term, 'dog');
+  const r = parseImport('well-known — известный\nup-to-date - современный\ntake off–взлетать', { termSep: 'dash' });
+  assert.deepEqual(r.cards.map((c) => [c.term, c.definition]), [
+    ['well-known', 'известный'], ['up-to-date', 'современный'], ['take off', 'взлетать'],
+  ]);
+});
+
+test('импорт: свои разделители термина и карточек', () => {
+  const r = parseImport('dog = собака | cat = кошка', { termSep: '=', cardSep: '|' });
+  assert.deepEqual(r.cards.map((c) => [c.term, c.definition]), [['dog', 'собака'], ['cat', 'кошка']]);
+  const s = parseImport('dog\tсобака;cat\tкошка', { cardSep: 'semicolon' });
+  assert.equal(s.cards.length, 2);
+});
+
+test('импорт: пустые строки пропускаются, строки без разделителя — в неразобранные', () => {
+  const r = parseImport('\ndog\tсобака\n\n   \njust a line\n\tбез термина\n');
+  assert.deepEqual(r.cards.map((c) => c.term), ['dog']);
+  assert.deepEqual(r.unparsed, ['just a line', '\tбез термина'.trim()]);
+});
+
+test('импорт: термин без определения — карточка с пустым определением', () => {
+  const r = parseImport('dog\t');
+  assert.deepEqual(r.cards.map((c) => [c.term, c.definition]), [['dog', '']]);
+});
+
+test('импорт: повторы — термин уже есть в модуле или встречается во вставке раньше', () => {
+  const r = parseImport('Dog\tсобака\ncat\tкошка\ndog\tпёс', { existingTerms: ['cat'] });
+  assert.deepEqual(r.cards.map((c) => c.duplicate), [null, 'module', 'paste']);
+});
+
+test('добавление нескольких карточек сразу', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Модуль', folderId: 'words' });
+  core.addCard(m.id, { term: 'dog', definition: 'собака' });
+  const added = core.addCards(m.id, [{ term: 'cat', definition: 'кошка' }, { term: 'fox', definition: '' }]);
+  assert.equal(added.length, 2);
+  assert.deepEqual(core.module(m.id).cards.map((c) => c.term), ['dog', 'cat', 'fox']);
+  assert.throws(() => core.addCards('basic', [{ term: 'x' }]));
+});
+
 // ---------- «Мои слова» и настройки ----------
 
 test('«Мои слова»: добавление без дублей и сохранение в хранилище', () => {

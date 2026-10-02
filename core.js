@@ -121,6 +121,10 @@
       return c;
     }
 
+    // Новая карточка: термин обязателен, определение по умолчанию пустое
+    const newCard = (fields) =>
+      applyCardFields({ id: `c_${newId()}`, term: '', definition: '' }, { definition: '', ...fields, term: fields.term });
+
     const allModules = () => [...modules, ...loadOwn().modules.map(ownView)];
 
     return {
@@ -165,9 +169,16 @@
 
       addCard: (moduleId, fields) => editOwn((own) => {
         const m = ownModule(own, moduleId);
-        const card = applyCardFields({ id: `c_${newId()}`, term: '', definition: '' }, { definition: '', ...fields, term: fields.term });
+        const card = newCard(fields);
         m.cards.push(card);
         return { ...card };
+      }),
+      // Несколько карточек за одну запись — для импорта
+      addCards: (moduleId, list) => editOwn((own) => {
+        const m = ownModule(own, moduleId);
+        const cards = list.map(newCard);
+        m.cards.push(...cards);
+        return cards.map((c) => ({ ...c }));
       }),
       updateCard: (moduleId, cardId, fields) => editOwn((own) => {
         applyCardFields(ownCard(ownModule(own, moduleId), cardId), fields);
@@ -222,6 +233,44 @@
 
       settings: { get: storage.get, set: storage.set },
     };
+  }
+
+  // ---------- Импорт ----------
+  // Разделители: готовые варианты или свой текст. Тире — длинное или короткое с пробелами вокруг или без,
+  // дефис — только с пробелами вокруг, чтобы не резать слова вроде well-known
+  const TERM_SEPS = { tab: '\t', comma: ',', semicolon: ';', dash: /\s*[–—]\s*|\s+-\s+/ };
+  const CARD_SEPS = { newline: /\r?\n/, semicolon: ';' };
+
+  // Делит s по первому вхождению sep (строка или RegExp): [до, после] или null
+  function splitOnce(s, sep) {
+    if (typeof sep === 'string') {
+      const i = sep ? s.indexOf(sep) : -1;
+      return i < 0 ? null : [s.slice(0, i), s.slice(i + sep.length)];
+    }
+    const m = s.match(sep);
+    return m ? [s.slice(0, m.index), s.slice(m.index + m[0].length)] : null;
+  }
+
+  // Разбор вставленного списка: карточки с пометкой повтора ('module' — термин уже есть в модуле,
+  // 'paste' — встречался выше во вставке) и строки, которые не удалось разобрать
+  function parseImport(text, { termSep = 'tab', cardSep = 'newline', existingTerms = [] } = {}) {
+    const tSep = TERM_SEPS[termSep] ?? termSep;
+    const cSep = CARD_SEPS[cardSep] ?? cardSep;
+    const key = (t) => t.trim().toLowerCase();
+    const inModule = new Set(existingTerms.map(key));
+    const seen = new Set();
+    const cards = [];
+    const unparsed = [];
+    for (const chunk of cSep ? String(text).split(cSep) : [String(text)]) {
+      if (!chunk.trim()) continue;
+      const parts = splitOnce(chunk, tSep);
+      const term = parts && parts[0].trim();
+      if (!term) { unparsed.push(chunk.trim()); continue; }
+      const k = key(term);
+      cards.push({ term, definition: parts[1].trim(), duplicate: inModule.has(k) ? 'module' : seen.has(k) ? 'paste' : null });
+      seen.add(k);
+    }
+    return { cards, unparsed };
   }
 
   // ---------- Текст ----------
@@ -279,5 +328,5 @@
     return { inCls, tCls, matched, errs };
   }
 
-  return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation };
+  return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport };
 });
