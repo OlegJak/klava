@@ -1000,6 +1000,7 @@ function renderToday() {
   return head + '<div class="modes">' +
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
+    mode('test', '📋', 'Тест', 'Вопросы разных типов и оценка в конце') +
     (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский') : '') +
     '</div>' +
     `<ol class="card-list">${due.map(({ card: c, moduleId }) =>
@@ -1067,6 +1068,7 @@ function renderModule(id) {
     '<div class="modes">' +
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
+    mode('test', '📋', 'Тест', 'Вопросы разных типов и оценка в конце') +
     (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
     `</div>${list}`;
 }
@@ -1306,6 +1308,138 @@ function onLearnKey(e) {
   }
 }
 
+// ---------- Режим «Тест» ----------
+// #/module/<id>/test и #/today/test: настройка → все вопросы на одной странице → оценка и разбор ошибок.
+// Число вопросов и типы запоминаются, направление общее с «Карточками»
+const quiz = { deckId: null, questions: null, graded: null };
+const TEST_TYPE_NAMES = { choice: 'Выбор из вариантов', truefalse: 'Верно / неверно', written: 'Ввод ответа' };
+const testTypes = () => store.get('test-types', Object.keys(TEST_TYPE_NAMES));
+
+function startTest(deckId) {
+  quiz.deckId = deckId;
+  quiz.questions = null;
+  quiz.graded = null;
+  renderTest();
+}
+
+function renderTest() {
+  if (!quiz.questions) { $('page-body').innerHTML = renderTestSetup(); return; }
+  $('page-body').innerHTML = quiz.graded ? renderTestResult() : renderTestQuestions();
+}
+
+function renderTestSetup() {
+  const total = deckCards(quiz.deckId).length;
+  const dir = flashDir();
+  const radio = (value, label) =>
+    `<label class="radio"><input type="radio" name="test-dir" value="${value}"${dir === value ? ' checked' : ''}><span>${label}</span></label>`;
+  const types = testTypes();
+  return '<div class="form test-setup"><h1>Тест</h1>' +
+    `<label class="field"><span>Вопросов (карточек в наборе: ${total})</span>` +
+    `<input type="number" id="test-count" min="1" max="${total}" value="${Math.min(store.get('test-count', 10), total)}"></label>` +
+    `<fieldset><legend>Направление</legend>${radio('en-ru', 'англ → рус')}${radio('ru-en', 'рус → англ')}</fieldset>` +
+    '<fieldset><legend>Типы вопросов</legend>' + Object.entries(TEST_TYPE_NAMES).map(([t, name]) =>
+      `<label class="radio"><input type="checkbox" name="test-type" value="${t}"${types.includes(t) ? ' checked' : ''}><span>${name}</span></label>`).join('') +
+    '</fieldset>' +
+    `<button class="primary-btn" data-act="test-start"${total ? '' : ' disabled'}>Начать тест</button></div>`;
+}
+
+function renderTestQuestions() {
+  const qs = quiz.questions;
+  const body = qs.map((q, i) => {
+    const head = `<div class="test-q-head"><span>${i + 1} / ${qs.length}</span><small>${TEST_TYPE_NAMES[q.type]}</small></div>`;
+    let answer;
+    if (q.type === 'choice') {
+      answer = '<div class="test-options">' + q.choices.map((c, k) =>
+        `<label class="test-option"><input type="radio" name="tq${i}" value="${k}"><span>${escapeHtml(c)}</span></label>`).join('') + '</div>';
+    } else if (q.type === 'truefalse') {
+      answer = `<p class="test-shown">${escapeHtml(q.shown)}</p><div class="test-options two">` +
+        `<label class="test-option"><input type="radio" name="tq${i}" value="true"><span>Верно</span></label>` +
+        `<label class="test-option"><input type="radio" name="tq${i}" value="false"><span>Неверно</span></label></div>`;
+    } else {
+      answer = `<input class="test-input" name="tq${i}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Ваш ответ">`;
+    }
+    return `<section class="test-q">${head}<div class="test-prompt">${escapeHtml(q.prompt)}</div>${answer}</section>`;
+  }).join('');
+  return `<div class="test">${body}<div class="test-submit"><button class="primary-btn" data-act="test-check">Проверить ответы</button></div></div>`;
+}
+
+// Ответы со страницы: вариант, true/false или текст; без ответа — undefined
+function readTestResponses() {
+  return quiz.questions.map((q, i) => {
+    if (q.type === 'written') return document.querySelector(`[name="tq${i}"]`).value;
+    const picked = document.querySelector(`[name="tq${i}"]:checked`);
+    if (!picked) return undefined;
+    return q.type === 'choice' ? q.choices[Number(picked.value)] : picked.value === 'true';
+  });
+}
+
+function renderTestResult() {
+  const g = quiz.graded;
+  const verdict = g.percent >= 90 ? 'Отлично!' : g.percent >= 70 ? 'Хорошо' : g.percent >= 50 ? 'Неплохо' : 'Есть над чем поработать';
+  const shownAnswer = (q, r) => {
+    if (r === undefined || r === '') return '<i>нет ответа</i>';
+    if (q.type === 'truefalse') return r ? 'Верно' : 'Неверно';
+    return escapeHtml(String(r));
+  };
+  const items = quiz.questions.map((q, i) => {
+    const res = g.results[i];
+    const mark = { correct: '✓', almost: '≈', wrong: '✗' }[res];
+    const right = q.type === 'truefalse'
+      ? `Показано: ${escapeHtml(q.shown)} — ${q.isTrue ? 'верно' : `неверно. Правильно: <b>${escapeHtml(q.answer)}</b>`}`
+      : `Правильно: <b>${escapeHtml(q.answer)}</b>`;
+    return `<li class="test-r ${res}"><span class="test-mark">${mark}</span><div>` +
+      `<div class="test-prompt small">${escapeHtml(q.prompt)}</div>` +
+      `<div>${right}</div>` +
+      (res === 'correct' ? '' : `<div class="test-given">Ваш ответ: ${shownAnswer(q, g.responses[i])}</div>`) +
+      '</div></li>';
+  });
+  // сначала ошибки, потом остальное
+  const order = g.results.map((r, i) => i).sort((a, b) => (g.results[a] === 'wrong' ? 0 : 1) - (g.results[b] === 'wrong' ? 0 : 1));
+  return '<div class="test">' +
+    `<div class="flash-done test-score"><h2>${g.correct} из ${g.total} · ${g.percent}%</h2><p>${verdict}` +
+    `${g.mistakes.length ? ` Ошибок: <b class="dict-bad">${g.mistakes.length}</b>` : ''}</p>` +
+    '<div class="page-actions"><button class="primary-btn" data-act="test-again">Ещё раз</button>' +
+    '<button class="pill-btn" data-act="test-setup">Другие настройки</button>' +
+    `<a class="pill-btn" href="${deckHref(quiz.deckId)}">Назад</a></div></div>` +
+    `<ol class="test-results">${order.map((i) => items[i]).join('')}</ol></div>`;
+}
+
+function testStart() {
+  const types = [...document.querySelectorAll('[name="test-type"]:checked')].map((x) => x.value);
+  if (!types.length) { alert('Выберите хотя бы один тип вопросов'); return; }
+  const count = Math.max(1, Number($('test-count').value) || 10);
+  store.set('test-count', count);
+  store.set('test-types', types);
+  store.set('cards-dir', document.querySelector('[name="test-dir"]:checked').value);
+  quiz.settings = { count, types, direction: flashDir() };
+  makeTest();
+}
+
+function makeTest() {
+  quiz.questions = KlavaCore.buildTest(deckCards(quiz.deckId), quiz.settings);
+  quiz.graded = null;
+  renderTest();
+  scrollTo(0, 0);
+}
+
+function testCheck() {
+  const responses = readTestResponses();
+  const empty = responses.filter((r) => r === undefined || r === '').length;
+  if (empty && !confirm(`Без ответа: ${plural(empty, 'вопрос', 'вопроса', 'вопросов')}. Всё равно проверить?`)) return;
+  quiz.graded = { ...KlavaCore.gradeTest(quiz.questions, responses), responses };
+  // каждый ответ — в повторение
+  quiz.questions.forEach((q, i) => core.recordAnswer(q.card.id, quiz.settings.direction, quiz.graded.results[i] !== 'wrong'));
+  renderTest();
+  scrollTo(0, 0);
+}
+
+function onTestAction(act) {
+  if (act === 'test-start') testStart();
+  else if (act === 'test-check') testCheck();
+  else if (act === 'test-again') makeTest();
+  else if (act === 'test-setup') startTest(quiz.deckId);
+}
+
 function onFlashKey(e) {
   if (parseRoute().screen !== 'cards' || e.ctrlKey || e.metaKey || e.altKey) return;
   // пробел и Enter на кнопках и полях работают как обычно
@@ -1480,6 +1614,12 @@ function renderCrumbs(items) {
     (href ? `<a href="${href}">${escapeHtml(title)}</a>` : `<span>${escapeHtml(title)}</span>`)).join('');
 }
 
+// Режимы-страницы по колоде (модулю или «Сегодня»)
+const MODE_NAMES = { cards: 'Карточки', learn: 'Заучивание', test: 'Тест' };
+function startMode(screen, deckId) {
+  ({ cards: startFlash, learn: startLearn, test: startTest })[screen](deckId);
+}
+
 function parseRoute() {
   const [screen, id, mode] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   if (screen === 'folder' && folderOf(id)) return { screen, id };
@@ -1488,6 +1628,7 @@ function parseRoute() {
     if (mode === 'edit' && isOwnModule(id)) return { screen: 'edit', id };
     if (mode === 'cards') return { screen: 'cards', id };
     if (mode === 'learn') return { screen: 'learn', id };
+    if (mode === 'test') return { screen: 'test', id };
     return { screen: 'module', id };
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
@@ -1501,7 +1642,7 @@ function parseRoute() {
   if (screen === 'custom') return { screen: 'trainer', id: 'custom' };
   if (screen === 'today') {
     if (id === 'type') return { screen: 'trainer', id: 'today' };
-    if (id === 'cards' || id === 'learn') return { screen: id, id: 'today' };
+    if (['cards', 'learn', 'test'].includes(id)) return { screen: id, id: 'today' };
     return { screen: 'today' };
   }
   return { screen: 'home' };
@@ -1523,19 +1664,16 @@ function route() {
     renderCrumbs([[null, 'Сегодня']]);
     $('page-body').innerHTML = renderToday();
   } else if (r.id === 'today') {
-    // карточки или заучивание по очереди «Сегодня»
-    renderCrumbs([['#/today', 'Сегодня'], [null, r.screen === 'cards' ? 'Карточки' : 'Заучивание']]);
-    if (r.screen === 'cards') startFlash('today'); else startLearn('today');
-  } else if (['module', 'edit', 'cards', 'learn'].includes(r.screen)) {
+    // режим по очереди «Сегодня»
+    renderCrumbs([['#/today', 'Сегодня'], [null, MODE_NAMES[r.screen]]]);
+    startMode(r.screen, 'today');
+  } else if (['module', 'edit', 'cards', 'learn', 'test'].includes(r.screen)) {
     core.markOpened(r.id);
     const l = lessonInfo(r.id);
     const folderCrumb = [`#/folder/${l.group}`, folderOf(l.group).title];
-    if (r.screen === 'cards') {
-      renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Карточки']]);
-      startFlash(r.id);
-    } else if (r.screen === 'learn') {
-      renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Заучивание']]);
-      startLearn(r.id);
+    if (MODE_NAMES[r.screen]) {
+      renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, MODE_NAMES[r.screen]]]);
+      startMode(r.screen, r.id);
     } else if (r.screen === 'edit') {
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Изменение']]);
       $('page-body').innerHTML = renderEditModule(r.id);
@@ -1672,6 +1810,8 @@ function onPageAction(e) {
     onFlashAction(act, btn);
   } else if (act.startsWith('learn-')) {
     onLearnAction(act, btn);
+  } else if (act.startsWith('test-')) {
+    onTestAction(act);
   } else if (act === 'new-folder') {
     const name = prompt('Название новой папки');
     if (name && name.trim()) location.hash = `#/folder/${core.createFolder(name).id}`;

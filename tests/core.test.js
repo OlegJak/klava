@@ -659,6 +659,68 @@ test('повторение: копия встроенного модуля по�
   assert.deepEqual(core.cardProgress(copy.cards[0].id), {});
 });
 
+// ---------- Режим «Тест» ----------
+
+const { buildTest, gradeTest } = KlavaCore;
+const six = words.slice(0, 6);
+
+test('тест: столько вопросов, сколько просили, но не больше карточек', () => {
+  assert.equal(buildTest(six, { count: 4 }).length, 4);
+  assert.equal(buildTest(six, { count: 50 }).length, 6);
+  const withEmpty = [...six, { id: 'e', term: 'empty', definition: '' }];
+  assert.equal(buildTest(withEmpty, { count: 50 }).length, 6); // без ответа в направлении — не спрашиваем
+});
+
+test('тест: выбранные типы вопросов распределяются поровну', () => {
+  const qs = buildTest(six, { count: 6, types: ['choice', 'truefalse', 'written'] });
+  const n = (t) => qs.filter((q) => q.type === t).length;
+  assert.deepEqual([n('choice'), n('truefalse'), n('written')], [2, 2, 2]);
+  assert.ok(buildTest(six, { count: 6, types: ['written'] }).every((q) => q.type === 'written'));
+});
+
+test('тест: каждая карточка спрашивается один раз, направление как задано', () => {
+  const qs = buildTest(six, { count: 6, direction: 'ru-en', types: ['written'] });
+  assert.equal(new Set(qs.map((q) => q.card.id)).size, 6);
+  for (const q of qs) assert.deepEqual([q.prompt, q.answer], [q.card.definition, q.card.term]);
+});
+
+test('тест: выбор — до 4 разных вариантов, среди них правильный', () => {
+  for (const q of buildTest(six, { count: 6, types: ['choice'] })) {
+    assert.ok(q.choices.includes(q.answer));
+    assert.equal(new Set(q.choices).size, q.choices.length);
+    assert.ok(q.choices.length <= 4);
+  }
+});
+
+test('тест: «верно / неверно» показывает правильный ответ или чужой', () => {
+  const yes = buildTest(six, { count: 1, types: ['truefalse'], random: () => 0.1 })[0];
+  assert.equal(yes.shown, yes.answer);
+  assert.equal(yes.isTrue, true);
+  const no = buildTest(six, { count: 1, types: ['truefalse'], random: () => 0.9 })[0];
+  assert.notEqual(no.shown, no.answer);
+  assert.equal(no.isTrue, false);
+  assert.match(no.shown, /^опр\d$/);
+});
+
+test('тест: оценка — верные ответы, процент и список ошибок', () => {
+  const [c, t, w1, w2] = buildTest(six.slice(0, 4), { count: 4, types: ['choice', 'truefalse', 'written', 'written'] })
+    .sort((a, b) => ['choice', 'truefalse', 'written'].indexOf(a.type) - ['choice', 'truefalse', 'written'].indexOf(b.type));
+  const responses = [c.answer, !t.isTrue, w1.answer.slice(0, -1) + 'ъ', 'совсем не то'];
+  const r = gradeTest([c, t, w1, w2], responses);
+  assert.deepEqual(r.results, ['correct', 'wrong', w1.answer.length >= 4 ? 'almost' : 'wrong', 'wrong']);
+  assert.equal(r.total, 4);
+  assert.equal(r.correct, r.results.filter((x) => x !== 'wrong').length);
+  assert.equal(r.percent, Math.round((r.correct / 4) * 100));
+  assert.deepEqual(r.mistakes.map((m) => m.index), r.results.flatMap((x, i) => (x === 'wrong' ? [i] : [])));
+});
+
+test('тест: без ответа на вопрос — ошибка', () => {
+  const qs = buildTest(six.slice(0, 3), { count: 3, types: ['choice', 'truefalse', 'written'] });
+  const r = gradeTest(qs, [undefined, undefined, '']);
+  assert.deepEqual(r.results, ['wrong', 'wrong', 'wrong']);
+  assert.equal(r.percent, 0);
+});
+
 // ---------- Импорт ----------
 
 const { parseImport } = KlavaCore;

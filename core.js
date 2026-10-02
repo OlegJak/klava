@@ -456,6 +456,66 @@
     return variants.some((v) => v.length >= 4 && editDistance(given, v) === 1) ? 'almost' : 'wrong';
   }
 
+  // Что спрашиваем и что ждём в ответ: «англ → рус» — термин и определение, «рус → англ» — наоборот
+  const sidesOf = (direction) => (direction === 'en-ru'
+    ? { ask: (c) => c.term, want: (c) => c.definition }
+    : { ask: (c) => c.definition, want: (c) => c.term });
+
+  // До n неверных вариантов ответа из других карточек — разных и не совпадающих с правильным
+  function distractors(cards, want, answer, n, random) {
+    const seen = new Set([answerKey(answer)]);
+    const out = [];
+    for (const c of shuffled(cards, random)) {
+      const a = want(c);
+      const k = answerKey(a || '');
+      if (out.length >= n) break;
+      if (k && !seen.has(k)) { seen.add(k); out.push(a); }
+    }
+    return out;
+  }
+
+  // ---------- Режим «Тест» ----------
+  // Вопросы трёх типов: 'choice' — выбор из вариантов, 'truefalse' — верно ли показанный ответ, 'written' — ввод.
+  // Типы раздаются по кругу перемешанным карточкам, каждая карточка — один раз
+  const TEST_TYPES = ['choice', 'truefalse', 'written'];
+
+  function buildTest(cards, { count = 10, direction = 'en-ru', types = TEST_TYPES, random = Math.random } = {}) {
+    const { ask, want } = sidesOf(direction);
+    const usable = cards.filter((c) => (want(c) || '').trim());
+    const picked = shuffled(usable, random).slice(0, count);
+    return picked.map((card, i) => {
+      const type = types[i % types.length];
+      const answer = want(card);
+      const q = { card, type, prompt: ask(card), answer };
+      if (type === 'choice') q.choices = shuffled([answer, ...distractors(usable, want, answer, 3, random)], random);
+      if (type === 'truefalse') {
+        const [other] = distractors(usable, want, answer, 1, random);
+        q.shown = !other || random() < 0.5 ? answer : other;
+        q.isTrue = q.shown === answer;
+      }
+      return q;
+    });
+  }
+
+  // responses[i]: выбранный вариант (choice), true/false (truefalse), введённый текст (written).
+  // results[i]: 'correct' | 'almost' | 'wrong'; «почти» засчитывается
+  function gradeTest(questions, responses) {
+    const results = questions.map((q, i) => {
+      const r = responses[i];
+      if (q.type === 'choice') return r === q.answer ? 'correct' : 'wrong';
+      if (q.type === 'truefalse') return typeof r === 'boolean' && r === q.isTrue ? 'correct' : 'wrong';
+      return checkAnswer(r ?? '', q.answer);
+    });
+    const correct = results.filter((x) => x !== 'wrong').length;
+    return {
+      results,
+      correct,
+      total: questions.length,
+      percent: questions.length ? Math.round((correct / questions.length) * 100) : 0,
+      mistakes: results.flatMap((x, i) => (x === 'wrong' ? [{ index: i, question: questions[i], given: responses[i] }] : [])),
+    };
+  }
+
   // ---------- Режим «Заучивание» ----------
   // Карточки идут раундами до roundSize штук. Этап 1 — выбор из вариантов, этап 2 — ввод.
   // Верный выбор переводит на ввод; два верных ввода подряд — карточка освоена и уступает место следующей.
@@ -465,8 +525,7 @@
   const LEARN_ROUND = 7;
 
   function learnSession(cards, { direction = 'en-ru', shuffle = false, random = Math.random } = {}) {
-    const ask = direction === 'en-ru' ? (c) => c.term : (c) => c.definition;
-    const want = direction === 'en-ru' ? (c) => c.definition : (c) => c.term;
+    const { ask, want } = sidesOf(direction);
     const usable = (shuffle ? shuffled(cards, random) : cards.slice()).filter((c) => (want(c) || '').trim());
     const base = {
       cards: usable, ask, want, random,
@@ -503,16 +562,7 @@
   function learnQuestion(s, card) {
     const { stage } = s.progress[card.id] || { stage: 1 };
     const answer = s.want(card);
-    let choices = null;
-    if (stage === 1) {
-      const key = answerKey(answer);
-      const others = [];
-      for (const c of shuffled(s.cards, s.random)) {
-        const a = s.want(c);
-        if (others.length < 3 && answerKey(a) !== key && !others.some((o) => answerKey(o) === answerKey(a))) others.push(a);
-      }
-      choices = shuffled([answer, ...others], s.random);
-    }
+    const choices = stage === 1 ? shuffled([answer, ...distractors(s.cards, s.want, answer, 3, s.random)], s.random) : null;
     return { card, stage, prompt: s.ask(card), answer, choices };
   }
 
@@ -628,5 +678,5 @@
   }
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
-    flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer };
+    flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest };
 });
