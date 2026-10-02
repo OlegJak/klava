@@ -336,6 +336,126 @@
   // «Повторить незнакомые»: новое занятие из карточек, отмеченных «не знаю»
   const flashRetry = (s, options) => flashSession(s.unknown, options);
 
+  // ---------- Проверка ответа ----------
+  // Не важны регистр, знаки препинания, апострофы, лишние пробелы и «ё/е»
+  // (апостроф выпадает совсем: don't → dont, остальные знаки становятся пробелами)
+  const answerKey = (s) => String(s).toLowerCase().replace(/ё/g, 'е').replace(/['’ʼ`]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+
+  // Расстояние Левенштейна, но не больше limit+1 — дальше считать незачем
+  function editDistance(a, b, limit = 1) {
+    if (Math.abs(a.length - b.length) > limit) return limit + 1;
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+
+  // Допустимые ответы: эталон целиком и каждый вариант через , ; / — со скобками и без текста в скобках
+  function answerVariants(expected) {
+    const parts = [expected, ...String(expected).split(/[,;/]/)];
+    const out = new Set();
+    for (const p of parts) {
+      for (const v of [p.replace(/[()]/g, ' '), p.replace(/\([^)]*\)/g, ' ')]) {
+        const k = answerKey(v);
+        if (k) out.add(k);
+      }
+    }
+    return [...out];
+  }
+
+  // 'correct' | 'almost' (одна опечатка в варианте от 4 букв) | 'wrong'
+  function checkAnswer(input, expected) {
+    const given = answerKey(input);
+    if (!given) return 'wrong';
+    const variants = answerVariants(expected);
+    if (variants.includes(given)) return 'correct';
+    return variants.some((v) => v.length >= 4 && editDistance(given, v) === 1) ? 'almost' : 'wrong';
+  }
+
+  // ---------- Режим «Заучивание» ----------
+  // Карточки идут раундами до roundSize штук. Этап 1 — выбор из вариантов, этап 2 — ввод.
+  // Верный выбор переводит на ввод; два верных ввода подряд — карточка освоена и уступает место следующей.
+  // Ошибка при вводе возвращает карточку на выбор. За раунд каждая карточка спрашивается один раз.
+  // Состояние неизменяемое: learnAnswer возвращает новое. random — источник случайности для вариантов
+
+  const LEARN_ROUND = 7;
+
+  function learnSession(cards, { direction = 'en-ru', shuffle = false, random = Math.random } = {}) {
+    const ask = direction === 'en-ru' ? (c) => c.term : (c) => c.definition;
+    const want = direction === 'en-ru' ? (c) => c.definition : (c) => c.term;
+    const usable = (shuffle ? shuffled(cards, random) : cards.slice()).filter((c) => (want(c) || '').trim());
+    const base = {
+      cards: usable, ask, want, random,
+      progress: {},                       // id → { stage, streak }
+      waiting: usable.map((c) => c.id),   // ещё не начатые
+      active: [],                         // в работе, не больше LEARN_ROUND
+      masteredIds: [],
+      round: 0,
+    };
+    return learnNextRound(base);
+  }
+
+  function learnNextRound(s) {
+    const active = [...s.active];
+    const waiting = [...s.waiting];
+    while (active.length < LEARN_ROUND && waiting.length) active.push(waiting.shift());
+    return learnView({ ...s, active, waiting, roundIds: active, pos: 0, round: s.round + 1 });
+  }
+
+  // Публичные поля: question, round, roundSize, mastered, total, done
+  function learnView(s) {
+    const done = s.roundIds.length === 0;
+    const id = done ? null : s.roundIds[s.pos];
+    return {
+      ...s,
+      done,
+      total: s.cards.length,
+      mastered: s.masteredIds.length,
+      roundSize: s.roundIds.length,
+      question: done ? null : learnQuestion(s, s.cards.find((c) => c.id === id)),
+    };
+  }
+
+  function learnQuestion(s, card) {
+    const { stage } = s.progress[card.id] || { stage: 1 };
+    const answer = s.want(card);
+    let choices = null;
+    if (stage === 1) {
+      const key = answerKey(answer);
+      const others = [];
+      for (const c of shuffled(s.cards, s.random)) {
+        const a = s.want(c);
+        if (others.length < 3 && answerKey(a) !== key && !others.some((o) => answerKey(o) === answerKey(a))) others.push(a);
+      }
+      choices = shuffled([answer, ...others], s.random);
+    }
+    return { card, stage, prompt: s.ask(card), answer, choices };
+  }
+
+  function learnAnswer(s, ok) {
+    if (s.done) return s;
+    const { card, stage } = s.question;
+    const p = s.progress[card.id] || { stage: 1, streak: 0 };
+    let next;
+    if (stage === 1) next = ok ? { stage: 2, streak: 0 } : p;
+    else next = ok ? { stage: 2, streak: p.streak + 1 } : { stage: 1, streak: 0 };
+    const mastered = next.streak >= 2;
+    const s2 = {
+      ...s,
+      progress: { ...s.progress, [card.id]: next },
+      active: mastered ? s.active.filter((x) => x !== card.id) : s.active,
+      masteredIds: mastered ? [...s.masteredIds, card.id] : s.masteredIds,
+      pos: s.pos + 1,
+    };
+    return s2.pos >= s.roundIds.length ? learnNextRound(s2) : learnView(s2);
+  }
+
   // ---------- Импорт ----------
   // Разделители: готовые варианты или свой текст. Тире — длинное или короткое с пробелами вокруг или без,
   // дефис — только с пробелами вокруг, чтобы не резать слова вроде well-known
@@ -430,5 +550,5 @@
   }
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
-    flashSession, flashAnswer, flashRetry };
+    flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer };
 });

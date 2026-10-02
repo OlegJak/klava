@@ -1003,6 +1003,7 @@ function renderModule(id) {
     `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div>${actions}</section>${hiddenNote}` +
     '<div class="modes">' +
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
+    mode('learn', '🎯', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
     (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
     `</div>${list}`;
 }
@@ -1101,6 +1102,143 @@ function onFlashAction(act, btn) {
   else if (act === 'flash-retry') startFlash(flashcards.moduleId, s.unknown);
   else if (act === 'flash-restart') startFlash(flashcards.moduleId);
   else if (act === 'flash-dir') { store.set('cards-dir', btn.dataset.dir); startFlash(flashcards.moduleId); }
+}
+
+// ---------- Режим «Заучивание» ----------
+// #/module/<id>/learn. Направление общее с «Карточками».
+// После ответа показываем разбор; само занятие продвигается по «Продолжить» —
+// так «Я был прав» может засчитать ответ заново, взяв состояние до ответа
+const learn = { moduleId: null, state: null, feedback: null }; // feedback: { result, given, choice }
+
+function startLearn(moduleId) {
+  learn.moduleId = moduleId;
+  learn.state = KlavaCore.learnSession(core.module(moduleId).cards, { direction: flashDir() });
+  learn.feedback = null;
+  renderLearn();
+  learnAutoSpeak();
+}
+
+// Английская сторона: в «англ → рус» — вопрос, в «рус → англ» — ответ (звучит после ответа)
+const learnEnglish = () => {
+  const q = learn.state.question;
+  if (!q) return null;
+  if (flashDir() === 'en-ru') return q.prompt;
+  return learn.feedback ? q.answer : null;
+};
+function learnAutoSpeak() {
+  const en = learnEnglish();
+  if (en && store.get('auto-read', true)) speakText(en);
+}
+
+function renderLearn() {
+  const s = learn.state;
+  const fb = learn.feedback;
+  const dir = flashDir();
+  const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="learn-dir" data-dir="${value}">${label}</button>`;
+  const bar = '<div class="flash-bar">' +
+    `<div class="seg">${seg('en-ru', 'англ → рус')}${seg('ru-en', 'рус → англ')}</div>` +
+    (s.done ? '' : `<span class="learn-round">Раунд ${s.round}</span>`) +
+    `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span></div>` +
+    `<div class="flash-track"><span style="width:${s.total ? (s.mastered / s.total) * 100 : 0}%"></span></div>`;
+
+  if (s.done) {
+    $('page-body').innerHTML = `<div class="flash">${bar}<div class="flash-done">` +
+      (s.total ? `<h2>Все ${plural(s.total, 'карточка освоена', 'карточки освоены', 'карточек освоено')}!</h2>`
+        : '<h2>Нечего заучивать</h2><p>В этом направлении у карточек нет ответа.</p>') +
+      '<div class="page-actions"><button class="primary-btn" data-act="learn-restart">Начать заново</button>' +
+      `<a class="pill-btn" href="#/module/${learn.moduleId}/cards">Карточки</a>` +
+      `<a class="pill-btn" href="#/module/${learn.moduleId}">К модулю</a></div></div></div>`;
+    return;
+  }
+
+  const q = s.question;
+  const what = q.stage === 1 ? 'Выберите' : 'Напишите';
+  const target = dir === 'en-ru' ? 'перевод' : 'по-английски';
+  const speakBtn = learnEnglish() ? '<button class="icon-btn" data-act="learn-speak" title="Произнести">🔊</button>' : '';
+  let body;
+  if (q.stage === 1) {
+    body = '<div class="learn-choices">' + q.choices.map((c, i) => {
+      let cls = '';
+      if (fb) cls = c === q.answer ? ' right' : i === fb.choice ? ' wrong' : ' dim';
+      return `<button class="learn-choice${cls}" data-act="learn-choice" data-i="${i}"${fb ? ' disabled' : ''}>` +
+        `<kbd>${i + 1}</kbd><span>${escapeHtml(c)}</span></button>`;
+    }).join('') + '</div>';
+  } else if (!fb) {
+    body = '<form id="learn-form" class="learn-form">' +
+      `<input id="learn-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${dir === 'en-ru' ? 'Перевод' : 'По-английски'}">` +
+      '<button class="primary-btn">Ответить</button>' +
+      '<button type="button" class="pill-btn" data-act="learn-skip">Не знаю</button></form>';
+  } else body = '';
+
+  let verdict = '';
+  if (fb) {
+    const right = `<b>${escapeHtml(q.answer)}</b>`;
+    const yours = fb.given && fb.result !== 'correct' ? `<small>Ваш ответ: ${escapeHtml(fb.given)}</small>` : '';
+    const head = {
+      correct: '<span class="dict-ok">✓ Верно!</span>',
+      almost: `<span class="learn-almost">≈ Почти! Правильно: ${right}</span>`,
+      wrong: `<span class="dict-bad">✗ Неверно. Правильно: ${right}</span>`,
+    }[fb.result];
+    verdict = `<div class="learn-feedback ${fb.result}"><div class="learn-verdict">${head}${yours}</div>` +
+      flashSides(q.card).extra +
+      '<div class="learn-next">' +
+      (fb.result === 'wrong' ? '<button class="pill-btn" data-act="learn-override">Я был прав</button>' : '') +
+      '<button class="primary-btn" data-act="learn-next">Продолжить <kbd>Enter</kbd></button></div></div>';
+  }
+
+  $('page-body').innerHTML = `<div class="flash">${bar}<div class="learn-card">` +
+    `<div class="learn-head"><small>${what} ${target}</small>${speakBtn}</div>` +
+    `<div class="flash-text${q.prompt.length > 40 ? ' long' : ''}">${escapeHtml(q.prompt)}</div>` +
+    `${body}${verdict}</div></div>`;
+  if (q.stage === 2 && !fb) $('learn-input').focus();
+}
+
+function learnRespond(result, given, choice) {
+  learn.feedback = { result, given, choice };
+  renderLearn();
+  if (flashDir() === 'ru-en') learnAutoSpeak();
+}
+
+// Дальше: ответ засчитывается («почти» — тоже верно) и занятие переходит к следующему вопросу
+function learnContinue(ok = learn.feedback.result !== 'wrong') {
+  learn.state = KlavaCore.learnAnswer(learn.state, ok);
+  learn.feedback = null;
+  renderLearn();
+  learnAutoSpeak();
+}
+
+function onLearnAction(act, btn) {
+  const q = learn.state.question;
+  if (act === 'learn-choice' && !learn.feedback) {
+    const i = Number(btn.dataset.i);
+    learnRespond(q.choices[i] === q.answer ? 'correct' : 'wrong', q.choices[i], i);
+  } else if (act === 'learn-skip') learnRespond('wrong', '');
+  else if (act === 'learn-next') learnContinue();
+  else if (act === 'learn-override') learnContinue(true);
+  else if (act === 'learn-speak') speakText(learnEnglish());
+  else if (act === 'learn-restart') startLearn(learn.moduleId);
+  else if (act === 'learn-dir') { store.set('cards-dir', btn.dataset.dir); startLearn(learn.moduleId); }
+}
+
+function onLearnSubmit(e) {
+  if (e.target.id !== 'learn-form') return;
+  e.preventDefault();
+  const given = $('learn-input').value;
+  if (!given.trim()) { $('learn-input').focus(); return; }
+  learnRespond(KlavaCore.checkAnswer(given, learn.state.question.answer), given.trim());
+}
+
+function onLearnKey(e) {
+  if (parseRoute().screen !== 'learn' || e.ctrlKey || e.metaKey || e.altKey || learn.state.done) return;
+  // в поле ввода и на кнопках клавиши работают как обычно
+  if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+  if (learn.feedback && e.key === 'Enter') { e.preventDefault(); learnContinue(); return; }
+  const i = Number(e.key) - 1;
+  const q = learn.state.question;
+  if (!learn.feedback && q.stage === 1 && i >= 0 && i < q.choices.length) {
+    e.preventDefault();
+    onLearnAction('learn-choice', document.querySelector(`.learn-choice[data-i="${i}"]`));
+  }
 }
 
 function onFlashKey(e) {
@@ -1284,6 +1422,7 @@ function parseRoute() {
     if (mode === 'type') return { screen: 'trainer', id };
     if (mode === 'edit' && isOwnModule(id)) return { screen: 'edit', id };
     if (mode === 'cards') return { screen: 'cards', id };
+    if (mode === 'learn') return { screen: 'learn', id };
     return { screen: 'module', id };
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
@@ -1310,13 +1449,16 @@ function route() {
   scrollTo(0, 0);
   if (onTrainer) { openTrainer(r.id); return; }
 
-  if (r.screen === 'module' || r.screen === 'edit' || r.screen === 'cards') {
+  if (['module', 'edit', 'cards', 'learn'].includes(r.screen)) {
     core.markOpened(r.id);
     const l = lessonInfo(r.id);
     const folderCrumb = [`#/folder/${l.group}`, folderOf(l.group).title];
     if (r.screen === 'cards') {
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Карточки']]);
       startFlash(r.id);
+    } else if (r.screen === 'learn') {
+      renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Заучивание']]);
+      startLearn(r.id);
     } else if (r.screen === 'edit') {
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Изменение']]);
       $('page-body').innerHTML = renderEditModule(r.id);
@@ -1451,6 +1593,8 @@ function onPageAction(e) {
   const r = parseRoute();
   if (act.startsWith('flash-')) {
     onFlashAction(act, btn);
+  } else if (act.startsWith('learn-')) {
+    onLearnAction(act, btn);
   } else if (act === 'new-folder') {
     const name = prompt('Название новой папки');
     if (name && name.trim()) location.hash = `#/folder/${core.createFolder(name).id}`;
@@ -1494,6 +1638,8 @@ function onNewModule(e) {
 function initPages() {
   $('page-body').addEventListener('click', onPageAction);
   document.addEventListener('keydown', onFlashKey);
+  document.addEventListener('keydown', onLearnKey);
+  $('page-body').addEventListener('submit', onLearnSubmit);
   $('page-body').addEventListener('change', (e) => {
     if (e.target.id !== 'flash-shuffle') return;
     store.set('cards-shuffle', e.target.checked);

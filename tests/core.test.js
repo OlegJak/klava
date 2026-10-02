@@ -377,6 +377,129 @@ test('карточки: пустой модуль — занятие сразу 
   assert.equal(s.total, 0);
 });
 
+// ---------- Проверка ответа ----------
+
+const { checkAnswer } = KlavaCore;
+
+test('проверка: регистр, знаки препинания, лишние пробелы и «ё/е» не важны', () => {
+  assert.equal(checkAnswer('  ПРИВЕТ,   мир! ', 'привет мир'), 'correct');
+  assert.equal(checkAnswer('еще', 'ещё'), 'correct');
+  assert.equal(checkAnswer('dont', "don't"), 'correct');
+  assert.equal(checkAnswer('I am here.', 'i am here'), 'correct');
+});
+
+test('проверка: подходит любой вариант через запятую, точку с запятой или слэш', () => {
+  for (const v of ['путь', 'способ', 'метод']) assert.equal(checkAnswer(v, 'путь, способ; метод'), 'correct');
+  assert.equal(checkAnswer('car', 'car/auto'), 'correct');
+  assert.equal(checkAnswer('путь, способ', 'путь, способ'), 'correct');
+  assert.equal(checkAnswer('дорога', 'путь, способ'), 'wrong');
+});
+
+test('проверка: текст в скобках необязателен', () => {
+  assert.equal(checkAnswer('go', '(to) go'), 'correct');
+  assert.equal(checkAnswer('to go', '(to) go'), 'correct');
+  assert.equal(checkAnswer('работа', 'работа (место)'), 'correct');
+});
+
+test('проверка: опечатка в одну букву — «почти», если в варианте от 4 букв', () => {
+  assert.equal(checkAnswer('hous', 'house'), 'almost');      // пропуск
+  assert.equal(checkAnswer('hoyse', 'house'), 'almost');     // замена
+  assert.equal(checkAnswer('housee', 'house'), 'almost');    // лишняя
+  assert.equal(checkAnswer('cat', 'car'), 'wrong');          // короткое слово — строго
+  assert.equal(checkAnswer('hoyce', 'house'), 'wrong');      // две ошибки
+  assert.equal(checkAnswer('spedd', 'speed, rate'), 'almost');
+});
+
+test('проверка: пустой ответ — неверно', () => {
+  assert.equal(checkAnswer('   ', 'house'), 'wrong');
+  assert.equal(checkAnswer('!!!', 'house'), 'wrong');
+});
+
+// ---------- Режим «Заучивание» ----------
+
+const { learnSession, learnAnswer } = KlavaCore;
+const words = Array.from({ length: 9 }, (_, i) => ({ id: `w${i}`, term: `term${i}`, definition: `опр${i}` }));
+// Ответить на текущий вопрос верно или неверно
+const answer = (s, ok) => learnAnswer(s, ok);
+// Пройти целый раунд одним и тем же ответом
+const answerRound = (s, ok) => { const r = s.round; while (s.round === r && !s.done) s = answer(s, ok); return s; };
+
+test('заучивание: раунд — до 7 карточек, сначала выбор из 4 вариантов', () => {
+  const s = learnSession(words, { random: () => 0.5 });
+  assert.equal(s.round, 1);
+  assert.equal(s.roundSize, 7);
+  const q = s.question;
+  assert.equal(q.stage, 1);
+  assert.equal(q.card.id, 'w0');
+  assert.equal(q.prompt, 'term0');
+  assert.equal(q.answer, 'опр0');
+  assert.equal(q.choices.length, 4);
+  assert.ok(q.choices.includes('опр0'));
+  assert.equal(new Set(q.choices).size, 4);
+  for (const c of q.choices) assert.match(c, /^опр\d$/); // неверные — из того же модуля
+});
+
+test('заучивание: «рус → англ» — спрашивается определение, отвечать термином', () => {
+  const q = learnSession(words, { direction: 'ru-en' }).question;
+  assert.equal(q.prompt, 'опр0');
+  assert.equal(q.answer, 'term0');
+  assert.ok(q.choices.every((c) => /^term\d$/.test(c)));
+});
+
+test('заучивание: верный выбор переводит на ввод, освоено после двух верных вводов подряд', () => {
+  let s = learnSession(words.slice(0, 2));
+  s = answerRound(s, true);              // раунд 1: выбор
+  assert.equal(s.round, 2);
+  assert.equal(s.question.stage, 2);
+  assert.equal(s.question.choices, null);
+  s = answerRound(s, true);              // раунд 2: первый верный ввод
+  assert.equal(s.mastered, 0);
+  s = answerRound(s, true);              // раунд 3: второй верный ввод
+  assert.equal(s.mastered, 2);
+  assert.equal(s.done, true);
+  assert.equal(s.question, null);
+});
+
+test('заучивание: ошибка при вводе возвращает карточку на выбор в следующем раунде', () => {
+  let s = learnSession(words.slice(0, 1));
+  s = answer(s, true);                   // выбор
+  s = answer(s, true);                   // ввод: 1 из 2
+  s = answer(s, false);                  // ошибка при вводе
+  assert.equal(s.question.stage, 1);
+  s = answer(answer(s, true), true);     // снова выбор и один ввод — ещё не освоено
+  assert.equal(s.mastered, 0);
+  s = answer(s, true);
+  assert.equal(s.done, true);
+});
+
+test('заучивание: ошибка при выборе оставляет карточку на выборе', () => {
+  let s = learnSession(words.slice(0, 1));
+  s = answer(s, false);
+  assert.equal(s.question.stage, 1);
+});
+
+test('заучивание: освоенные уступают место следующим карточкам модуля', () => {
+  let s = learnSession(words);           // 9 карточек, раунд — 7
+  assert.deepEqual(s.question.card.id, 'w0');
+  for (let i = 0; i < 3; i++) s = answerRound(s, true);
+  // первые 7 освоены — в раунде оставшиеся две
+  assert.equal(s.mastered, 7);
+  assert.equal(s.roundSize, 2);
+  assert.equal(s.question.card.id, 'w7');
+  assert.equal(s.total, 9);
+});
+
+test('заучивание: карточки без ответа в выбранном направлении пропускаются', () => {
+  const s = learnSession([{ id: 'x', term: 'x', definition: '' }, ...words.slice(0, 1)]);
+  assert.equal(s.total, 1);
+  assert.equal(s.question.card.id, 'w0');
+});
+
+test('заучивание: вариантов меньше четырёх, если в модуле мало карточек', () => {
+  const q = learnSession(words.slice(0, 2)).question;
+  assert.equal(q.choices.length, 2);
+});
+
 // ---------- Импорт ----------
 
 const { parseImport } = KlavaCore;
