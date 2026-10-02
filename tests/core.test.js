@@ -605,6 +605,44 @@ test('повторение: состояние каждой карточки м�
   assert.deepEqual(core.cardStates(m.id), { [x.id]: { state: 'new', due: false } });
 });
 
+test('«Сегодня»: пусто, пока ничего не встречено или срок не наступил', () => {
+  const { core } = timed();
+  assert.deepEqual(core.dueCards(), []);
+  core.recordAnswer(card(core), 'en-ru', true);
+  assert.deepEqual(core.dueCards(), []);
+  assert.equal(core.dueCount(), 0);
+});
+
+test('«Сегодня»: карточки с наступившим сроком из всех модулей, самые просроченные первыми', () => {
+  const { c, core } = timed();
+  const m = core.createModule({ title: 'Свой', folderId: 'grammar' });
+  const own = core.addCard(m.id, { term: 'dog', definition: 'собака' });
+  const cond = core.module('cond').cards[0].id;
+  core.recordAnswer(card(core, 1), 'ru-en', true);  // день 1 → срок 2
+  c.day = 2;
+  core.recordAnswer(own.id, 'en-ru', false);         // день 2 → срок 3
+  core.recordAnswer(cond, 'en-ru', true);            // день 2 → срок 3
+  c.day = 5;
+  assert.deepEqual(core.dueCards().map((x) => [x.card.id, x.moduleId]), [
+    [card(core, 1), 'basic'],
+    [cond, 'cond'],
+    [own.id, m.id],
+  ]);
+  assert.equal(core.dueCount(), 3);
+  assert.equal(core.dueCount('grammar'), 2);
+  assert.equal(core.dueCount('words'), 1);
+});
+
+test('«Сегодня»: скрытые модули в очередь не попадают', () => {
+  const { c, core } = timed();
+  core.recordAnswer(core.module('verbs').cards[0].id, 'en-ru', true);
+  c.day = 3;
+  assert.equal(core.dueCount(), 1);
+  core.hideModule('verbs');
+  assert.deepEqual(core.dueCards(), []);
+  assert.equal(core.dueCount('words'), 0);
+});
+
 test('повторение: прогресс сохраняется в хранилище', () => {
   const storage = memoryStorage();
   const c = clock(1);

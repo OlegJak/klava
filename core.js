@@ -166,6 +166,21 @@
       return out;
     }
 
+    function dueList(folderId) {
+      const all = loadProgress();
+      const day = today();
+      const out = [];
+      for (const m of inFolder(visibleModules(), folderId)) {
+        for (const c of m.cards) {
+          if (!isDueIn(all, c.id, day)) continue;
+          const due = Math.min(...Object.values(all[c.id]).map((p) => p.due));
+          out.push({ card: c, moduleId: m.id, due });
+        }
+      }
+      // сортировка устойчивая: при равном сроке — порядок модулей и карточек
+      return out.sort((a, b) => a.due - b.due).map(({ card, moduleId }) => ({ card, moduleId }));
+    }
+
     // Скрытые встроенные модули — список id под ключом hidden
     const hidden = () => new Set(storage.get('hidden', []));
     const allModules = () => [...modules, ...loadOwn().modules.map(ownView)];
@@ -253,6 +268,11 @@
         };
       },
       cardStates,
+
+      // Очередь «Сегодня»: карточки видимых модулей с наступившим сроком, самые просроченные первыми.
+      // [{ card, moduleId }]; folderId — только из этой папки
+      dueCards: (folderId) => dueList(folderId),
+      dueCount: (folderId) => dueList(folderId).length,
 
       createFolder: (name) => editOwn((own) => {
         const f = { id: `f_${newId()}`, title: title(name) };

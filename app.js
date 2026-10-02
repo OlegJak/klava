@@ -89,10 +89,11 @@ function makeChunks(lessonId) {
   }
 
   // Фразы — по 10 за урок, слова — по 20, в каждой строке одна фраза или одно слово
-  const mod = core.module(lessonId);
-  const isWords = mod.kind === 'words';
-  return shuffle(mod.cards).slice(0, isWords ? 20 : 10).map(({ id: cardId, term: en, definition: ru, explanation }) => ({
-    cardId, text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru || '?'}` : ru }],
+  // в «Сегодня» слова и фразы вперемешку: фразой считаем термин из трёх слов и длиннее
+  const kind = lessonId === 'today' ? null : core.module(lessonId).kind;
+  const wordLike = (en) => (kind ? kind === 'words' : en.split(/\s+/).length < 3);
+  return shuffle(deckCards(lessonId)).slice(0, kind === 'phrases' ? 10 : 20).map(({ id: cardId, term: en, definition: ru, explanation }) => ({
+    cardId, text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: wordLike(en) ? `${en} — ${ru || '?'}` : ru }],
   }));
 }
 
@@ -157,6 +158,7 @@ function render() {
     const empty = {
       custom: 'Вставьте текст ниже',
       mine: 'Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.',
+      today: 'На сегодня всё повторено.',
     }[state.lessonId] ?? 'В модуле пока нет карточек.';
     textEl.innerHTML = `<span class="next">${empty}</span>`;
     $('typed').innerHTML = '';
@@ -914,7 +916,12 @@ function renderExampleList(lk) {
 // «Свой текст» — не модуль, а режим тренажёра; живёт в системной папке «Своё» рядом с «Моими словами»
 const SPECIAL = {
   custom: { title: 'Свой текст', group: 'own', icon: '📝' },
+  today: { title: 'Повторить сегодня', group: null, icon: '📅' },
 };
+
+// Колода для режимов: карточки модуля или очередь «Сегодня» (id 'today') — слова всех модулей, срок которых наступил
+const deckCards = (id) => (id === 'today' ? core.dueCards().map((x) => x.card) : core.module(id).cards);
+const deckHref = (id) => (id === 'today' ? '#/today' : `#/module/${id}`);
 // Порядок на главной: сначала свои папки, потом встроенные (системная «Своё» — последняя из них)
 const allFolders = () => {
   const list = core.folders();
@@ -953,12 +960,16 @@ const lessonCards = (id) => core.module(id).cards;
 const tile = (href, icon, title, sub) =>
   `<a class="tile" href="${href}"><span class="tile-icon">${icon}</span>` +
   `<span class="tile-text"><b>${escapeHtml(title)}</b><small>${sub}</small></span></a>`;
-const lessonTile = (id) => { const l = lessonInfo(id); return tile(lessonHref(id), l.icon, l.title, lessonCount(id)); };
+const dueNote = (n) => (n ? ` · <span class="due-count">ждут: ${n}</span>` : '');
+const lessonTile = (id) => {
+  const l = lessonInfo(id);
+  return tile(lessonHref(id), l.icon, l.title, lessonCount(id) + (SPECIAL[id] ? '' : dueNote(core.moduleStats(id).due)));
+};
 const folderTile = (f) => {
   const ids = folderLessons(f.id);
   const icons = ids.slice(0, 4).map((id) => lessonInfo(id).icon).join(' ');
   return tile(`#/folder/${f.id}`, f.builtIn ? '📁' : '🗂️', f.title,
-    plural(ids.length, 'модуль', 'модуля', 'модулей') + (icons ? ` · ${icons}` : ''));
+    plural(ids.length, 'модуль', 'модуля', 'модулей') + (icons ? ` · ${icons}` : '') + dueNote(core.dueCount(f.id)));
 };
 const tilesSection = (title, tiles, actions = '') =>
   `<section class="tiles-section"><div class="section-head"><h2>${escapeHtml(title)}</h2>${actions}</div>` +
@@ -966,9 +977,39 @@ const tilesSection = (title, tiles, actions = '') =>
 const actionBtn = (act, label, cls = '') => `<button class="pill-btn ${cls}" data-act="${act}">${label}</button>`;
 const actionLink = (href, label) => `<a class="pill-btn" href="${href}">${label}</a>`;
 
+// Плашка «Повторить сегодня» вверху главной
+function todayBanner() {
+  const n = core.dueCount();
+  if (!n) {
+    return '<div class="today-banner calm"><span class="mode-icon">📅</span><span class="tile-text">' +
+      '<b>На сегодня повторять нечего</b><small>Слова, которые вы учили, появятся здесь, когда придёт срок повторить</small></span></div>';
+  }
+  return '<a class="today-banner" href="#/today"><span class="mode-icon">📅</span><span class="tile-text">' +
+    `<b>Повторить сегодня: ${plural(n, 'слово', 'слова', 'слов')}</b><small>Из всех модулей, срок которых наступил</small></span>` +
+    '<span class="today-go">Повторить →</span></a>';
+}
+
+function renderToday() {
+  const due = core.dueCards();
+  const modules = new Set(due.map((x) => x.moduleId)).size;
+  const head = '<section class="module-head"><span class="lesson-icon module-icon">📅</span>' +
+    `<div><h1>Повторить сегодня</h1><small>${due.length ? `${plural(due.length, 'слово', 'слова', 'слов')} из ${plural(modules, 'модуля', 'модулей', 'модулей')}` : 'всё повторено'}</small></div></section>`;
+  if (!due.length) return `${head}<p class="empty">На сегодня всё повторено. Возвращайтесь завтра или учите новые модули.</p>`;
+  const mode = (path, icon, title, sub) =>
+    `<a class="mode-btn" href="#/today/${path}"><span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span></a>`;
+  return head + '<div class="modes">' +
+    mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
+    mode('learn', '🎯', 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
+    (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский') : '') +
+    '</div>' +
+    `<ol class="card-list">${due.map(({ card: c, moduleId }) =>
+      `<li><span class="card-term">${escapeHtml(c.term)}<small class="card-module">${escapeHtml(lessonInfo(moduleId).title)}</small></span>` +
+      `<span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`;
+}
+
 function renderHome() {
   const recent = core.recent().filter((id) => lessonInfo(id) && !core.isHidden(id));
-  return (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
+  return todayBanner() + (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
     tilesSection('Папки', allFolders().map(folderTile),
       `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}${actionLink('#/import', 'Импорт')}</div>`);
 }
@@ -1039,7 +1080,7 @@ const flashcards = { moduleId: null, session: null, flipped: false };
 const flashDir = () => store.get('cards-dir', 'en-ru');
 const flashOptions = () => ({ shuffle: store.get('cards-shuffle', false) });
 
-function startFlash(moduleId, cards = core.module(moduleId).cards) {
+function startFlash(moduleId, cards = deckCards(moduleId)) {
   flashcards.moduleId = moduleId;
   flashcards.session = KlavaCore.flashSession(cards, flashOptions());
   flashcards.flipped = false;
@@ -1076,7 +1117,7 @@ function renderFlash() {
       '<div class="page-actions">' +
       (n ? `<button class="primary-btn" data-act="flash-retry">Повторить незнакомые (${n})</button>` : '') +
       '<button class="pill-btn" data-act="flash-restart">Начать заново</button>' +
-      `<a class="pill-btn" href="#/module/${flashcards.moduleId}">К модулю</a></div></div></div>`;
+      `<a class="pill-btn" href="${deckHref(flashcards.moduleId)}">Назад</a></div></div></div>`;
     return;
   }
 
@@ -1135,7 +1176,7 @@ const learn = { moduleId: null, state: null, feedback: null }; // feedback: { re
 
 function startLearn(moduleId) {
   learn.moduleId = moduleId;
-  learn.state = KlavaCore.learnSession(core.module(moduleId).cards, { direction: flashDir() });
+  learn.state = KlavaCore.learnSession(deckCards(moduleId), { direction: flashDir() });
   learn.feedback = null;
   renderLearn();
   learnAutoSpeak();
@@ -1169,8 +1210,8 @@ function renderLearn() {
       (s.total ? `<h2>Все ${plural(s.total, 'карточка освоена', 'карточки освоены', 'карточек освоено')}!</h2>`
         : '<h2>Нечего заучивать</h2><p>В этом направлении у карточек нет ответа.</p>') +
       '<div class="page-actions"><button class="primary-btn" data-act="learn-restart">Начать заново</button>' +
-      `<a class="pill-btn" href="#/module/${learn.moduleId}/cards">Карточки</a>` +
-      `<a class="pill-btn" href="#/module/${learn.moduleId}">К модулю</a></div></div></div>`;
+      `<a class="pill-btn" href="${deckHref(learn.moduleId)}/cards">Карточки</a>` +
+      `<a class="pill-btn" href="${deckHref(learn.moduleId)}">Назад</a></div></div></div>`;
     return;
   }
 
@@ -1458,6 +1499,11 @@ function parseRoute() {
     };
   }
   if (screen === 'custom') return { screen: 'trainer', id: 'custom' };
+  if (screen === 'today') {
+    if (id === 'type') return { screen: 'trainer', id: 'today' };
+    if (id === 'cards' || id === 'learn') return { screen: id, id: 'today' };
+    return { screen: 'today' };
+  }
   return { screen: 'home' };
 }
 
@@ -1473,7 +1519,14 @@ function route() {
   scrollTo(0, 0);
   if (onTrainer) { openTrainer(r.id); return; }
 
-  if (['module', 'edit', 'cards', 'learn'].includes(r.screen)) {
+  if (r.screen === 'today') {
+    renderCrumbs([[null, 'Сегодня']]);
+    $('page-body').innerHTML = renderToday();
+  } else if (r.id === 'today') {
+    // карточки или заучивание по очереди «Сегодня»
+    renderCrumbs([['#/today', 'Сегодня'], [null, r.screen === 'cards' ? 'Карточки' : 'Заучивание']]);
+    if (r.screen === 'cards') startFlash('today'); else startLearn('today');
+  } else if (['module', 'edit', 'cards', 'learn'].includes(r.screen)) {
     core.markOpened(r.id);
     const l = lessonInfo(r.id);
     const folderCrumb = [`#/folder/${l.group}`, folderOf(l.group).title];
@@ -1509,13 +1562,13 @@ function route() {
 
 function openTrainer(id) {
   state.lessonId = id;
-  if (id !== 'custom') core.markOpened(id);
+  if (!SPECIAL[id]) core.markOpened(id);
   const l = lessonInfo(id);
   $('lesson-icon').textContent = l.icon;
-  $('lesson-group').textContent = folderOf(l.group).title;
+  $('lesson-group').textContent = l.group ? folderOf(l.group).title : 'Повторение';
   $('lesson-title').textContent = l.title;
-  $('back').href = id === 'custom' ? '#/' : `#/module/${id}`;
-  $('back').title = id === 'custom' ? 'На главную' : 'К модулю';
+  $('back').href = id === 'custom' ? '#/' : deckHref(id);
+  $('back').title = { custom: 'На главную', today: 'К повторению' }[id] || 'К модулю';
   startLesson();
 }
 

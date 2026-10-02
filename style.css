@@ -222,6 +222,22 @@ button { padding: 6px 14px; cursor: pointer; }
 .learn-next { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .learn-next kbd { margin-left: 4px; color: inherit; border-color: rgb(255 255 255 / .5); }
 
+/* «Повторить сегодня» */
+.today-banner {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 16px; padding: 16px 18px;
+  color: #fff; text-decoration: none;
+  background: var(--accent);
+  border-radius: 12px;
+}
+.today-banner .tile-text b { font-size: 17px; }
+.today-banner .tile-text small { color: rgb(255 255 255 / .85); }
+.today-banner:hover { filter: brightness(1.06); }
+.today-go { margin-left: auto; font-weight: 600; white-space: nowrap; }
+.today-banner.calm { color: var(--text); background: var(--panel); border: 1px solid var(--line); }
+.today-banner.calm .tile-text small { color: var(--muted); }
+.card-module { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+
 .hidden-modules { margin-top: 24px; }
 .hidden-modules summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
 .hidden-modules .tile { opacity: .6; }
