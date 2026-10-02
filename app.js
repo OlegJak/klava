@@ -63,17 +63,13 @@ const shuffle = (arr) => {
   return a;
 };
 
-// Приводит «умные» кавычки и тире к символам, которые есть на клавиатуре
-function normalize(text) {
-  return text
-    .replace(/[‘’ʼ]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—]/g, '-')
-    .replace(/…/g, '...')
-    .replace(/[^\x20-\x7E\n]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// Уроки, «Мои слова» и настройки — через ядро обучения (core.js)
+const { normalize, compareDictation } = KlavaCore;
+const core = KlavaCore.createCore({
+  lessons: LESSONS, groups: GROUPS, notes: NOTES,
+  storage: KlavaCore.browserStorage(() => localStorage, 'klava:'),
+});
+const store = core.settings;
 
 // Каждый фрагмент: { text, parts: [{ from, to, tr }] } — части нужны для перевода текущего слова
 function makeChunks(lessonId) {
@@ -91,16 +87,16 @@ function makeChunks(lessonId) {
   }
 
   if (lessonId === 'mine') {
-    return shuffle(store.get('study', [])).slice(0, 20).map(([en, ru]) => ({
+    return shuffle(core.myWords()).slice(0, 20).map(({ term: en, definition: ru }) => ({
       text: en, ru, parts: [{ from: 0, to: en.length, tr: `${en} — ${ru || '?'}` }],
     }));
   }
 
   // Фразы — по 10 за урок, слова — по 20, в каждой строке одна фраза или одно слово
-  const lesson = LESSONS[lessonId];
-  const isWords = lesson.type === 'words';
-  return shuffle(lesson.items).slice(0, isWords ? 20 : 10).map(([en, ru, note]) => ({
-    text: en, ru, note, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru}` : ru }],
+  const mod = core.module(lessonId);
+  const isWords = mod.kind === 'words';
+  return shuffle(mod.cards).slice(0, isWords ? 20 : 10).map(({ term: en, definition: ru, explanation }) => ({
+    text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: isWords ? `${en} — ${ru}` : ru }],
   }));
 }
 
@@ -127,15 +123,6 @@ const state = {
 const newDict = () => ({ input: '', caret: 0, checked: false, res: null });
 const editPos = () => (state.edit < 0 ? state.pos : state.edit);
 state.dict = newDict();
-
-const store = {
-  get(key, def) {
-    try { return JSON.parse(localStorage.getItem('klava:' + key)) ?? def; } catch { return def; }
-  },
-  set(key, val) {
-    try { localStorage.setItem('klava:' + key, JSON.stringify(val)); } catch {}
-  },
-};
 
 function startLesson() {
   state.chunks = makeChunks(state.lessonId);
@@ -227,11 +214,11 @@ function render() {
 }
 
 // Объяснение под фразой: почему это время, конструкция, предлог.
-// В уроке у фразы третий элемент — ключ из NOTES или готовый текст; разметка **жирный** и `формула`.
+// Текст объяснения — из карточки урока; разметка **жирный** и `формула`.
 // В «Диктанте» и «Переводе» показываем только после проверки, чтобы не подсказать ответ
 function renderExplain(chunk) {
   const el = $('explain');
-  const note = chunk && chunk.note && (NOTES[chunk.note] || chunk.note);
+  const note = chunk && chunk.note;
   const show = Boolean(note) && $('show-explain').checked && !textHidden();
   el.hidden = !show;
   if (!show) return;
@@ -253,46 +240,6 @@ function chunkRu(chunk) {
   chunk.ru = null; // перевод загружается
   translate(chunk.text).then((ru) => { chunk.ru = ru || ''; if (state.chunks[state.index] === chunk) render(); });
   return null;
-}
-
-// Сравнение без учёта регистра, знаков препинания и лишних пробелов:
-// на слух запятые и заглавные буквы не различить
-function compareDictation(input, target) {
-  const sig = (s) => {
-    const out = [];
-    let space = true;
-    for (let i = 0; i < s.length; i++) {
-      const c = s[i];
-      if (/[A-Za-z0-9']/.test(c)) { out.push({ c: c.toLowerCase(), i }); space = false; }
-      else if (/\s/.test(c) && !space) { out.push({ c: ' ', i }); space = true; }
-    }
-    if (out.length && out[out.length - 1].c === ' ') out.pop();
-    return out;
-  };
-  const a = sig(input), b = sig(target);
-  // Наибольшая общая подпоследовательность
-  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = a.length - 1; i >= 0; i--) {
-    for (let j = b.length - 1; j >= 0; j--) {
-      dp[i][j] = a[i].c === b[j].c ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    }
-  }
-  const inCls = [...input].map(() => 'neutral');
-  const tCls = [...target].map((c) => (/[A-Za-z0-9']/.test(c) ? 'missing' : 'punct'));
-  a.forEach((x) => { inCls[x.i] = 'extra'; });
-  b.forEach((x) => { if (x.c === ' ') tCls[x.i] = 'missing'; });
-  let i = 0, j = 0, matched = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i].c === b[j].c) { inCls[a[i].i] = 'done'; tCls[b[j].i] = 'ok'; matched++; i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
-    else j++;
-  }
-  // Ошибки считаем по словам: слово образца, в котором чего-то не хватает,
-  // плюс целиком лишние слова во вводе
-  const words = (s, bad) => [...s.matchAll(/\S+/g)].filter((m) => bad(m.index, m.index + m[0].length)).length;
-  const errs = words(target, (from, to) => tCls.slice(from, to).includes('missing')) +
-    words(input, (from, to) => { const c = inCls.slice(from, to); return c.includes('extra') && !c.includes('done'); });
-  return { inCls, tCls, matched, errs };
 }
 
 function renderDictation(chunk) {
@@ -637,20 +584,8 @@ function finish() {
 // ---------- Слово по Ctrl и «Мои слова» ----------
 // Первый Ctrl — выделить слово под курсором и показать предложение с ним и перевод предложения,
 // второй — сохранить слово (с переводом) в «Мои слова»
-const dict = {};      // перевод слов из уроков: слово -> перевод
+const dict = core.wordTranslations(); // перевод слов из уроков: слово -> перевод
 const trCache = {};   // текст -> Promise с переводом
-
-function buildDict() {
-  for (const [id, lesson] of Object.entries(LESSONS)) {
-    if (lesson.type !== 'words') continue;
-    for (const [en, ru] of lesson.items) {
-      if (!en.includes(' ')) dict[en] = ru;
-      // формы неправильных глаголов: «went» → «идти (go went gone)»
-      else if (id === 'verbs') for (const form of en.split(' ')) dict[form] ??= `${ru} (${en})`;
-      else dict[en.toLowerCase()] = ru; // устойчивые выражения — целиком: «make sense» → «иметь смысл»
-    }
-  }
-}
 
 function translate(word) {
   if (dict[word]) return Promise.resolve(dict[word]);
@@ -681,8 +616,7 @@ function wordAt(t, pos) {
   return { word: raw === 'I' ? raw : raw.toLowerCase(), from, to };
 }
 
-const studyList = () => store.get('study', []);
-const isSaved = (word) => studyList().some(([en]) => en === word);
+const isSaved = (word) => core.hasMyWord(word);
 
 // В слове только буквы и апостроф, поэтому экранировать нечего
 const wordRe = (word) => new RegExp(`\\b${word}\\b`, 'i');
@@ -694,15 +628,14 @@ const stemRe = (word, flags = 'i') =>
 // Ищем другое предложение, не ту строку, что сейчас набирается: сначала во фразах уроков,
 // потом в Tatoeba; если ничего нет — показываем текущую фразу с переводом
 async function findExample(word, chunk, from) {
-  const phrases = Object.values(LESSONS).filter((l) => l.type === 'phrases').flatMap((l) => l.items);
-  const found = shuffle(phrases).find(([en]) => en !== chunk.text && wordRe(word).test(en));
-  if (found) return { en: found[0], ru: found[1] };
+  const found = shuffle(core.phrases()).find((p) => p.term !== chunk.text && wordRe(word).test(p.term));
+  if (found) return { en: found.term, ru: found.definition };
   return (await findOnlineExample(word, chunk.text)) || currentSentence(chunk, from);
 }
 
 // Предложение текущей строки, в котором стоит слово (для фраз и своего текста)
 async function currentSentence(chunk, from) {
-  if (LESSONS[state.lessonId]?.type === 'phrases') return { en: chunk.text, ru: chunk.parts[0].tr };
+  if (core.module(state.lessonId)?.kind === 'phrases') return { en: chunk.text, ru: chunk.parts[0].tr };
   if (state.lessonId !== 'custom') return null;
   const t = chunk.text;
   const start = Math.max(...['.', '!', '?'].map((c) => t.lastIndexOf(c, from - 1))) + 1;
@@ -748,9 +681,7 @@ function onCtrl() {
 
 // Добавить слово или фразу в «Мои слова» вместе с переводом
 async function addToStudy(en) {
-  const tr = await translate(en);
-  const list = studyList();
-  if (!list.some(([w]) => w === en)) store.set('study', [...list, [en, tr || '']]);
+  core.addMyWord(en, await translate(en));
   updateMineOption();
 }
 
@@ -777,9 +708,9 @@ const cleanPhrase = (s) => {
 // Несколько предложений с этим словом/фразой: сначала из уроков, потом из Tatoeba
 async function findExamples(q, skip, n = 5) {
   const re = matchRe(q);
-  const local = shuffle(Object.values(LESSONS).filter((l) => l.type === 'phrases').flatMap((l) => l.items))
-    .filter(([en]) => en !== skip && re.test(en))
-    .map(([en, ru]) => ({ en, ru }));
+  const local = shuffle(core.phrases())
+    .filter((p) => p.term !== skip && re.test(p.term))
+    .map((p) => ({ en: p.term, ru: p.definition }));
   let online = [];
   if (local.length < n) {
     try {
@@ -970,8 +901,12 @@ const SPECIAL = {
   mine: { title: 'Мои слова', group: 'own', icon: '⭐' },
   custom: { title: 'Свой текст', group: 'own', icon: '📝' },
 };
-const MENU_GROUPS = [...GROUPS, { id: 'own', title: 'Своё' }];
-const lessonInfo = (id) => LESSONS[id] || SPECIAL[id];
+const MENU_GROUPS = [...core.folders(), { id: 'own', title: 'Своё' }];
+// Название, значок и группа меню — для встроенного модуля или особого урока
+const lessonInfo = (id) => {
+  const m = core.module(id);
+  return m ? { title: m.title, icon: m.icon, group: m.folderId } : SPECIAL[id];
+};
 
 const plural = (n, one, few, many) => {
   const m10 = n % 10, m100 = n % 100;
@@ -981,13 +916,13 @@ const plural = (n, one, few, many) => {
 
 function lessonCount(id) {
   if (id === 'custom') return 'любой текст';
-  if (id === 'mine') return plural(studyList().length, 'слово', 'слова', 'слов');
-  const l = LESSONS[id];
-  return l.type === 'words' ? plural(l.items.length, 'слово', 'слова', 'слов') : plural(l.items.length, 'фраза', 'фразы', 'фраз');
+  if (id === 'mine') return plural(core.myWords().length, 'слово', 'слова', 'слов');
+  const m = core.module(id);
+  return m.kind === 'words' ? plural(m.cards.length, 'слово', 'слова', 'слов') : plural(m.cards.length, 'фраза', 'фразы', 'фраз');
 }
 
 function renderMenu() {
-  const ids = [...Object.keys(LESSONS), ...Object.keys(SPECIAL)];
+  const ids = [...core.modules().map((m) => m.id), ...Object.keys(SPECIAL)];
   $('lesson-menu').innerHTML = MENU_GROUPS.map((g) => {
     const items = ids.filter((id) => lessonInfo(id).group === g.id).map((id) => {
       const l = lessonInfo(id);
@@ -1147,7 +1082,6 @@ function applyTheme(theme) {
 
 function init() {
   buildKeyboard();
-  buildDict();
   initWordTools();
   initVoice();
 
