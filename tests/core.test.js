@@ -267,6 +267,62 @@ test('id своих папок, модулей и карточек не пере
   assert.notEqual(m.id, 'basic');
 });
 
+// ---------- Скрыть и скопировать ----------
+
+test('скрытый встроенный модуль не показывается в папке, но доступен по id и возвращается', () => {
+  const storage = memoryStorage();
+  const core = makeCore({ storage });
+  core.hideModule('verbs');
+  assert.deepEqual(core.modules('words').map((m) => m.id), ['basic']);
+  assert.equal(core.modules().some((m) => m.id === 'verbs'), false);
+  assert.deepEqual(core.hiddenModules('words').map((m) => m.id), ['verbs']);
+  assert.equal(core.isHidden('verbs'), true);
+  assert.equal(core.module('verbs').id, 'verbs');
+  assert.equal(makeCore({ storage }).isHidden('verbs'), true); // сохраняется
+  core.showModule('verbs');
+  assert.deepEqual(core.modules('words').map((m) => m.id), ['basic', 'verbs']);
+  assert.deepEqual(core.hiddenModules(), []);
+});
+
+test('скрыть можно только встроенный модуль', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Свой', folderId: 'words' });
+  assert.throws(() => core.hideModule(m.id));
+  assert.throws(() => core.hideModule('nope'));
+});
+
+test('копия встроенного модуля — свой модуль с теми же карточками и id исходного', () => {
+  const core = makeCore();
+  const copy = core.copyModule('cond');
+  assert.equal(copy.builtIn, false);
+  assert.equal(copy.sourceId, 'cond');
+  assert.equal(copy.title, 'Conditionals (копия)');
+  assert.equal(copy.folderId, 'grammar');
+  const orig = core.module('cond').cards;
+  assert.deepEqual(copy.cards.map((c) => [c.term, c.definition, c.explanation]), orig.map((c) => [c.term, c.definition, c.explanation]));
+  assert.equal(copy.cards.some((c) => orig.some((o) => o.id === c.id)), false); // у карточек копии свои id
+  assert.deepEqual(core.module(copy.id).cards, copy.cards);
+});
+
+test('правка копии не меняет оригинал', () => {
+  const core = makeCore();
+  const copy = core.copyModule('basic', { folderId: 'own' });
+  assert.equal(copy.folderId, 'own');
+  core.updateCard(copy.id, copy.cards[0].id, { definition: 'пора' });
+  core.deleteCard(copy.id, copy.cards[1].id);
+  assert.deepEqual(core.module('basic').cards.map((c) => c.definition), ['время', 'иметь смысл']);
+});
+
+test('свой модуль тоже можно скопировать', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Свой', folderId: 'words' });
+  core.addCard(m.id, { term: 'dog', definition: 'собака', example: 'A dog.' });
+  const copy = core.copyModule(m.id);
+  assert.equal(copy.sourceId, m.id);
+  assert.deepEqual(copy.cards.map((c) => [c.term, c.example]), [['dog', 'A dog.']]);
+  assert.throws(() => core.copyModule('nope'));
+});
+
 // ---------- Импорт ----------
 
 const { parseImport } = KlavaCore;

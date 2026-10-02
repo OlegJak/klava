@@ -128,7 +128,20 @@
     const newCard = (fields) =>
       applyCardFields({ id: `c_${newId()}`, term: '', definition: '' }, { definition: '', ...fields, term: fields.term });
 
+    function findModule(id) {
+      if (byId.has(id)) return byId.get(id);
+      const m = loadOwn().modules.find((x) => x.id === id);
+      return m ? ownView(m) : null;
+    }
+
+    // Скрытые встроенные модули — список id под ключом hidden
+    const hidden = () => new Set(storage.get('hidden', []));
     const allModules = () => [...modules, ...loadOwn().modules.map(ownView)];
+    const visibleModules = () => { const h = hidden(); return allModules().filter((m) => !h.has(m.id)); };
+    const inFolder = (list, folderId) => (folderId ? list.filter((m) => m.folderId === folderId) : list);
+    function builtInOnly(id) {
+      if (!byId.has(id)) throw new Error('Скрыть можно только встроенный модуль');
+    }
 
     // «Мои слова» есть всегда. Прежняя версия сайта хранила их списком [[термин, перевод], …]
     // под ключом study — переносим его в модуль один раз и очищаем
@@ -149,11 +162,38 @@
 
     return {
       folders: () => [...folders, ...loadOwn().folders.map((f) => ({ ...f, builtIn: false }))],
-      modules: (folderId) => (folderId ? allModules().filter((m) => m.folderId === folderId) : allModules()),
-      module(id) {
-        if (byId.has(id)) return byId.get(id);
-        const m = loadOwn().modules.find((x) => x.id === id);
-        return m ? ownView(m) : null;
+      // Модули папки (или все), кроме скрытых
+      modules: (folderId) => inFolder(visibleModules(), folderId),
+      // Модуль по id — в том числе скрытый
+      module: findModule,
+
+      hiddenModules: (folderId) => { const h = hidden(); return inFolder(modules.filter((m) => h.has(m.id)), folderId); },
+      isHidden: (id) => hidden().has(id),
+      hideModule(id) {
+        builtInOnly(id);
+        storage.set('hidden', [...hidden().add(id)]);
+      },
+      showModule(id) {
+        const h = hidden();
+        h.delete(id);
+        storage.set('hidden', [...h]);
+      },
+
+      // Копия модуля — свой модуль «<название> (копия)» с теми же карточками (у карточек новые id);
+      // sourceId — id исходного модуля. По умолчанию копия ложится в папку оригинала
+      copyModule(id, { folderId } = {}) {
+        const src = findModule(id);
+        if (!src) throw new Error(`Нет модуля ${id}`);
+        return editOwn((own) => {
+          const target = folderId ?? src.folderId;
+          if (!folderExists(own, target)) throw new Error(`Нет папки ${target}`);
+          const m = {
+            id: `m_${newId()}`, title: `${src.title} (копия)`, folderId: target, langs: { ...src.langs }, sourceId: src.id,
+            cards: src.cards.map(({ id: _, ...fields }) => newCard(fields)),
+          };
+          own.modules.push(m);
+          return ownView(m);
+        });
       },
 
       createFolder: (name) => editOwn((own) => {

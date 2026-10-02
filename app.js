@@ -955,7 +955,7 @@ const actionBtn = (act, label, cls = '') => `<button class="pill-btn ${cls}" dat
 const actionLink = (href, label) => `<a class="pill-btn" href="${href}">${label}</a>`;
 
 function renderHome() {
-  const recent = core.recent().filter((id) => lessonInfo(id));
+  const recent = core.recent().filter((id) => lessonInfo(id) && !core.isHidden(id));
   return (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
     tilesSection('Папки', allFolders().map(folderTile),
       `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}${actionLink('#/import', 'Импорт')}</div>`);
@@ -967,8 +967,12 @@ function renderFolder(folderId) {
   let actions = '';
   actions += actionLink(`#/new/${folderId}`, '+ Модуль') + actionLink(`#/import/folder/${folderId}`, 'Импорт');
   if (!f.builtIn) actions += actionBtn('rename-folder', 'Переименовать') + actionBtn('delete-folder', 'Удалить', 'danger');
+  // скрытые встроенные модули — свёрнуты внизу, оттуда их можно открыть и вернуть
+  const hiddenIds = core.hiddenModules(folderId).map((m) => m.id);
   return tilesSection(f.title, ids.map(lessonTile), actions && `<div class="page-actions">${actions}</div>`) +
-    (ids.length ? '' : '<p class="empty">В папке пока нет модулей.</p>');
+    (ids.length ? '' : '<p class="empty">В папке пока нет модулей.</p>') +
+    (hiddenIds.length ? `<details class="hidden-modules"><summary>Скрытые модули (${hiddenIds.length})</summary>` +
+      `<div class="tiles">${hiddenIds.map(lessonTile).join('')}</div></details>` : '');
 }
 
 function renderModule(id) {
@@ -982,14 +986,17 @@ function renderModule(id) {
     ? `<ol class="card-list">${cards.map((c) =>
       `<li><span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
     : `<p class="empty">${emptyText}</p>`;
-  const actions = own
-    ? `<div class="page-actions">${actionLink(`#/module/${id}/edit`, '✏️ Изменить')}${actionLink(`#/import/module/${id}`, 'Импорт')}` +
-      `${id === 'mine' ? '' : actionBtn('delete-module', 'Удалить', 'danger')}</div>`
-    : '';
+  const hiddenNow = core.isHidden(id);
+  const actions = '<div class="page-actions">' + (own
+    ? actionLink(`#/module/${id}/edit`, '✏️ Изменить') + actionLink(`#/import/module/${id}`, 'Импорт') +
+      actionBtn('copy-module', 'Скопировать') + (id === 'mine' ? '' : actionBtn('delete-module', 'Удалить', 'danger'))
+    : actionBtn('copy-module', 'Скопировать и изменить') +
+      (hiddenNow ? actionBtn('show-module', 'Вернуть в папку') : actionBtn('hide-module', 'Скрыть'))) + '</div>';
+  const hiddenNote = hiddenNow ? '<p class="empty">Модуль скрыт: в папке его не видно.</p>' : '';
   const typeMode = '<span class="mode-icon">⌨️</span><span class="tile-text"><b>Набор</b>' +
     '<small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span>';
   return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
-    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div>${actions}</section>` +
+    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div>${actions}</section>${hiddenNote}` +
     '<div class="modes">' +
     (cards.length ? `<a class="mode-btn" href="#/module/${id}/type">${typeMode}</a>` : `<span class="mode-btn disabled">${typeMode}</span>`) +
     `</div>${list}`;
@@ -1343,6 +1350,14 @@ function onPageAction(e) {
     if (!confirm(`Удалить модуль «${l.title}» со всеми карточками?`)) return;
     core.deleteModule(r.id);
     location.hash = `#/folder/${l.group}`;
+  } else if (act === 'copy-module') {
+    location.hash = `#/module/${core.copyModule(r.id).id}/edit`;
+  } else if (act === 'hide-module') {
+    core.hideModule(r.id);
+    location.hash = `#/folder/${lessonInfo(r.id).group}`;
+  } else if (act === 'show-module') {
+    core.showModule(r.id);
+    route();
   } else if (act === 'import-go') {
     doImport();
   } else if (act.startsWith('card-')) {

@@ -135,6 +135,10 @@ button { padding: 6px 14px; cursor: pointer; }
 .card-def { color: var(--muted); }
 .empty { color: var(--muted); }
 
+.hidden-modules { margin-top: 24px; }
+.hidden-modules summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
+.hidden-modules .tile { opacity: .6; }
+
 /* Действия на страницах */
 .section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .section-head h2 { margin-right: auto; }
