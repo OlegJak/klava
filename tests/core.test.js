@@ -721,6 +721,83 @@ test('тест: без ответа на вопрос — ошибка', () => {
   assert.equal(r.percent, 0);
 });
 
+// ---------- Подбор пар ----------
+
+const { matchGame, matchPick, matchTime, MATCH_PENALTY_MS } = KlavaCore;
+const tileOf = (g, cardId, side) => g.tiles.find((t) => t.cardId === cardId && t.side === side).id;
+
+test('пары: на поле до 6 пар — по плитке термина и определения на карточку, вперемешку', () => {
+  const g = matchGame(words, { random: () => 0.3 });
+  assert.equal(g.pairs, 6);
+  assert.equal(g.tiles.length, 12);
+  const cards = new Set(g.tiles.map((t) => t.cardId));
+  assert.equal(cards.size, 6);
+  for (const id of cards) {
+    const sides = g.tiles.filter((t) => t.cardId === id).map((t) => t.side).sort();
+    assert.deepEqual(sides, ['def', 'term']);
+  }
+  const texts = g.tiles.filter((t) => t.side === 'term').map((t) => t.text);
+  assert.ok(texts.every((t) => /^term\d$/.test(t)));
+  assert.notDeepEqual(g.tiles.map((t) => t.side), [...Array(6).fill('term'), ...Array(6).fill('def')]);
+});
+
+test('пары: карточки без определения и с повторяющимися текстами не берутся', () => {
+  const g = matchGame([
+    { id: 'a', term: 'dog', definition: 'собака' },
+    { id: 'b', term: 'Dog', definition: 'пёс' },     // тот же термин
+    { id: 'c', term: 'hound', definition: 'Собака' }, // то же определение
+    { id: 'd', term: 'cat', definition: '' },
+    { id: 'e', term: 'fox', definition: 'лиса' },
+  ], { random: () => 0.9999 }); // без перестановок: карточки берутся по порядку
+  assert.equal(g.pairs, 2);
+  assert.deepEqual([...new Set(g.tiles.map((t) => t.cardId))].sort(), ['a', 'e']);
+});
+
+test('пары: выбор, отмена выбора и смена выбора на той же стороне', () => {
+  let g = matchGame(words.slice(0, 3));
+  const t0 = tileOf(g, 'w0', 'term');
+  const t1 = tileOf(g, 'w1', 'term');
+  g = matchPick(g, t0);
+  assert.equal(g.selected, t0);
+  assert.equal(matchPick(g, t0).selected, null);  // повторный клик снимает выбор
+  g = matchPick(g, t1);                           // тот же столбец — просто другой выбор
+  assert.equal(g.selected, t1);
+  assert.equal(g.mistakes, 0);
+});
+
+test('пары: верная пара исчезает, неверная — ошибка и сброс выбора', () => {
+  let g = matchGame(words.slice(0, 2));
+  g = matchPick(matchPick(g, tileOf(g, 'w0', 'term')), tileOf(g, 'w1', 'def'));
+  assert.equal(g.mistakes, 1);
+  assert.equal(g.selected, null);
+  assert.deepEqual(g.last, { result: 'miss', tiles: [tileOf(g, 'w0', 'term'), tileOf(g, 'w1', 'def')], cardIds: ['w0', 'w1'] });
+  g = matchPick(matchPick(g, tileOf(g, 'w0', 'term')), tileOf(g, 'w0', 'def'));
+  assert.deepEqual(g.matched, ['w0']);
+  assert.equal(g.last.result, 'match');
+  assert.equal(g.done, false);
+  const again = matchPick(g, tileOf(g, 'w0', 'def'));  // по исчезнувшей плитке клик ничего не делает
+  assert.equal(again.selected, null);
+  g = matchPick(matchPick(g, tileOf(g, 'w1', 'def')), tileOf(g, 'w1', 'term'));
+  assert.equal(g.done, true);
+});
+
+test('пары: итоговое время — время игры плюс штраф за каждую ошибку', () => {
+  let g = matchGame(words.slice(0, 2));
+  g = matchPick(matchPick(g, tileOf(g, 'w0', 'term')), tileOf(g, 'w1', 'def'));
+  assert.equal(matchTime(g, 12_345), 12_345 + MATCH_PENALTY_MS);
+});
+
+test('пары: личный рекорд по модулю — меньшее время, сохраняется', () => {
+  const storage = memoryStorage();
+  const core = makeCore({ storage });
+  assert.equal(core.matchRecord('basic'), null);
+  assert.equal(core.saveMatchTime('basic', 20_000), true);
+  assert.equal(core.saveMatchTime('basic', 25_000), false);
+  assert.equal(core.saveMatchTime('basic', 15_000), true);
+  assert.equal(makeCore({ storage }).matchRecord('basic'), 15_000);
+  assert.equal(core.matchRecord('cond'), null);
+});
+
 // ---------- Импорт ----------
 
 const { parseImport } = KlavaCore;

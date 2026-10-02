@@ -263,6 +263,24 @@ button { padding: 6px 14px; cursor: pointer; }
 .test-r.wrong .test-mark { color: var(--bad); }
 .test-given { color: var(--muted); font-size: 14px; }
 
+/* Подбор пар */
+.match-clock { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.match-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.match-tile {
+  min-height: 96px; padding: 12px;
+  font-size: 15px; line-height: 1.3; overflow-wrap: anywhere;
+  border-radius: 12px;
+  touch-action: manipulation;
+  transition: border-color .12s, background .12s, opacity .25s, transform .12s;
+}
+.match-tile.term { font-weight: 600; }
+.match-tile:hover:not(:disabled) { border-color: var(--accent); }
+.match-tile.selected { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.03); }
+.match-tile.miss { border-color: var(--bad); background: rgb(214 69 69 / .14); animation: shake .3s; }
+.match-tile.gone { opacity: 0; pointer-events: none; }
+@keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .match-tile { transition: none; } .match-tile.miss { animation: none; } }
+
 /* «Повторить сегодня» */
 .today-banner {
   display: flex; align-items: center; gap: 14px;
@@ -659,6 +677,8 @@ kbd {
   .test-options { grid-template-columns: 1fr; }
   .test-options.two { grid-template-columns: 1fr 1fr; }
   .test-q { padding: 14px; }
+  .match-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .match-tile { min-height: 84px; padding: 8px; font-size: 13px; }
   .module-head { flex-wrap: wrap; }
   .module-head .page-actions { margin-left: 0; width: 100%; }
 }

@@ -372,6 +372,16 @@
         return true;
       }),
 
+      // Личный рекорд подбора пар по модулю (мс) — под ключом match-records
+      matchRecord: (moduleId) => storage.get('match-records', {})[moduleId] ?? null,
+      // Сохранить время, если это рекорд; true — новый рекорд
+      saveMatchTime(moduleId, ms) {
+        const records = storage.get('match-records', {});
+        if (records[moduleId] != null && records[moduleId] <= ms) return false;
+        storage.set('match-records', { ...records, [moduleId]: ms });
+        return true;
+      },
+
       // Недавно открытые модули для главной: id, последний открытый — первым
       recent: () => storage.get('recent', []),
       markOpened(id) {
@@ -515,6 +525,50 @@
       mistakes: results.flatMap((x, i) => (x === 'wrong' ? [{ index: i, question: questions[i], given: responses[i] }] : [])),
     };
   }
+
+  // ---------- Подбор пар ----------
+  // Поле — до 6 пар: плитка термина и плитка определения на карточку, вперемешку. Состояние неизменяемое.
+  // { tiles: [{ id, cardId, side: 'term' | 'def', text }], pairs, matched: [cardId], selected, mistakes, done, last }
+  // last — что случилось при последнем клике: { result: 'match' | 'miss', tiles, cardIds }
+  const MATCH_PAIRS = 6;
+  const MATCH_PENALTY_MS = 1000;
+
+  function matchGame(cards, { random = Math.random } = {}) {
+    // на поле не должно быть одинаковых текстов — иначе пара неоднозначна
+    const terms = new Set();
+    const defs = new Set();
+    const picked = [];
+    for (const c of shuffled(cards, random)) {
+      const t = answerKey(c.term || '');
+      const d = answerKey(c.definition || '');
+      if (!t || !d || terms.has(t) || defs.has(d) || terms.has(d) || defs.has(t)) continue;
+      terms.add(t);
+      defs.add(d);
+      picked.push(c);
+      if (picked.length === MATCH_PAIRS) break;
+    }
+    const tiles = shuffled(picked.flatMap((c) => [
+      { id: `${c.id}|term`, cardId: c.id, side: 'term', text: c.term },
+      { id: `${c.id}|def`, cardId: c.id, side: 'def', text: c.definition },
+    ]), random);
+    return { tiles, pairs: picked.length, matched: [], selected: null, mistakes: 0, done: picked.length === 0, last: null };
+  }
+
+  function matchPick(g, tileId) {
+    const tile = g.tiles.find((t) => t.id === tileId);
+    if (g.done || !tile || g.matched.includes(tile.cardId)) return g;
+    const sel = g.tiles.find((t) => t.id === g.selected);
+    if (!sel) return { ...g, selected: tileId, last: null };
+    if (sel.id === tileId) return { ...g, selected: null, last: null };
+    if (sel.side === tile.side) return { ...g, selected: tileId, last: null };
+    const pair = { tiles: [sel.id, tileId], cardIds: [sel.cardId, tile.cardId] };
+    if (sel.cardId !== tile.cardId) return { ...g, selected: null, mistakes: g.mistakes + 1, last: { result: 'miss', ...pair } };
+    const matched = [...g.matched, tile.cardId];
+    return { ...g, selected: null, matched, done: matched.length === g.pairs, last: { result: 'match', ...pair } };
+  }
+
+  // Итоговое время: сколько шла игра плюс штраф за каждую ошибку
+  const matchTime = (g, elapsedMs) => elapsedMs + g.mistakes * MATCH_PENALTY_MS;
 
   // ---------- Режим «Заучивание» ----------
   // Карточки идут раундами до roundSize штук. Этап 1 — выбор из вариантов, этап 2 — ввод.
@@ -678,5 +732,6 @@
   }
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
-    flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest };
+    flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
+    matchGame, matchPick, matchTime, MATCH_PENALTY_MS };
 });

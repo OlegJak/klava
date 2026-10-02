@@ -1001,6 +1001,7 @@ function renderToday() {
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
     mode('test', '📋', 'Тест', 'Вопросы разных типов и оценка в конце') +
+    mode('match', '🧩', 'Подбор пар', 'Соединить термины с переводами на время') +
     (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский') : '') +
     '</div>' +
     `<ol class="card-list">${due.map(({ card: c, moduleId }) =>
@@ -1069,6 +1070,7 @@ function renderModule(id) {
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
     mode('test', '📋', 'Тест', 'Вопросы разных типов и оценка в конце') +
+    mode('match', '🧩', 'Подбор пар', 'Соединить термины с переводами на время') +
     (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
     `</div>${list}`;
 }
@@ -1440,6 +1442,95 @@ function onTestAction(act) {
   else if (act === 'test-setup') startTest(quiz.deckId);
 }
 
+// ---------- Подбор пар ----------
+// #/module/<id>/match и #/today/match. Таймер идёт с первого клика по «Начать»;
+// за ошибку — штраф 1 секунда. Верно соединённая пара — верный ответ «англ → рус» в повторении
+const match = { deckId: null, game: null, startedAt: 0, timer: 0, finished: null };
+const secs = (ms) => (ms / 1000).toFixed(1).replace('.', ',');
+
+function startMatch(deckId) {
+  stopMatchTimer();
+  match.deckId = deckId;
+  match.game = null;
+  match.finished = null;
+  renderMatch();
+}
+
+function stopMatchTimer() {
+  clearInterval(match.timer);
+  match.timer = 0;
+}
+
+function matchBegin() {
+  match.game = KlavaCore.matchGame(deckCards(match.deckId));
+  match.finished = null;
+  match.startedAt = performance.now();
+  stopMatchTimer();
+  match.timer = setInterval(updateMatchClock, 100);
+  renderMatch();
+}
+
+function updateMatchClock() {
+  const el = $('match-clock');
+  if (el && match.game) el.textContent = secs(KlavaCore.matchTime(match.game, performance.now() - match.startedAt));
+}
+
+function renderMatch() {
+  const g = match.game;
+  const record = match.deckId === 'today' ? null : core.matchRecord(match.deckId);
+  const recordText = record != null ? `Рекорд: ${secs(record)} с` : 'Рекорда пока нет';
+  if (!g) {
+    const pairs = KlavaCore.matchGame(deckCards(match.deckId)).pairs;
+    $('page-body').innerHTML = '<div class="flash"><div class="flash-done">' +
+      '<h2>Подбор пар</h2>' +
+      (pairs ? `<p>Соедините ${plural(pairs, 'термин', 'термина', 'терминов')} с переводами как можно быстрее. ` +
+        `Ошибка — плюс секунда.</p><p class="empty">${recordText}</p>` +
+        '<div class="page-actions"><button class="primary-btn" data-act="match-start">Начать</button></div>'
+        : '<p>В наборе нет карточек с переводом.</p>') +
+      '</div></div>';
+    return;
+  }
+  if (match.finished) {
+    const f = match.finished;
+    $('page-body').innerHTML = '<div class="flash"><div class="flash-done">' +
+      `<h2>${secs(f.total)} с</h2>` +
+      `<p>${f.mistakes ? `Игра ${secs(f.elapsed)} с + штраф ${f.mistakes} с (${plural(f.mistakes, 'ошибка', 'ошибки', 'ошибок')})` : 'Без ошибок!'}</p>` +
+      (match.deckId === 'today' ? '' : `<p>${f.record ? '🏆 Новый рекорд!' : recordText}</p>`) +
+      '<div class="page-actions"><button class="primary-btn" data-act="match-start">Ещё раз</button>' +
+      `<a class="pill-btn" href="${deckHref(match.deckId)}">Назад</a></div></div></div>`;
+    return;
+  }
+  const missed = g.last?.result === 'miss' ? g.last.tiles : [];
+  $('page-body').innerHTML = '<div class="flash">' +
+    `<div class="flash-bar"><span class="match-clock" id="match-clock">0,0</span>` +
+    `<span class="flash-progress">Пар: ${g.matched.length} из ${g.pairs}${g.mistakes ? ` · ошибок: ${g.mistakes}` : ''}</span></div>` +
+    '<div class="match-grid">' + g.tiles.map((t) => {
+      const cls = g.matched.includes(t.cardId) ? ' gone' : t.id === g.selected ? ' selected' : missed.includes(t.id) ? ' miss' : '';
+      return `<button class="match-tile ${t.side}${cls}" data-act="match-pick" data-tile="${escapeAttr(t.id)}"${cls === ' gone' ? ' disabled' : ''}>` +
+        `${escapeHtml(t.text)}</button>`;
+    }).join('') + '</div></div>';
+  updateMatchClock();
+}
+
+function matchTap(tileId) {
+  match.game = KlavaCore.matchPick(match.game, tileId);
+  const last = match.game.last;
+  if (last?.result === 'match') core.recordAnswer(last.cardIds[0], 'en-ru', true);
+  if (match.game.done) {
+    stopMatchTimer();
+    const elapsed = performance.now() - match.startedAt;
+    const total = KlavaCore.matchTime(match.game, elapsed);
+    const record = match.deckId !== 'today' && core.saveMatchTime(match.deckId, Math.round(total));
+    match.finished = { elapsed, total, mistakes: match.game.mistakes, record };
+  }
+  renderMatch();
+}
+
+function onMatchAction(act, btn) {
+  if (act === 'match-start') matchBegin();
+  else if (act === 'match-pick') matchTap(btn.dataset.tile);
+}
+
 function onFlashKey(e) {
   if (parseRoute().screen !== 'cards' || e.ctrlKey || e.metaKey || e.altKey) return;
   // пробел и Enter на кнопках и полях работают как обычно
@@ -1615,9 +1706,9 @@ function renderCrumbs(items) {
 }
 
 // Режимы-страницы по колоде (модулю или «Сегодня»)
-const MODE_NAMES = { cards: 'Карточки', learn: 'Заучивание', test: 'Тест' };
+const MODE_NAMES = { cards: 'Карточки', learn: 'Заучивание', test: 'Тест', match: 'Подбор пар' };
 function startMode(screen, deckId) {
-  ({ cards: startFlash, learn: startLearn, test: startTest })[screen](deckId);
+  ({ cards: startFlash, learn: startLearn, test: startTest, match: startMatch })[screen](deckId);
 }
 
 function parseRoute() {
@@ -1626,9 +1717,7 @@ function parseRoute() {
   if (screen === 'module' && id !== 'custom' && lessonInfo(id)) {
     if (mode === 'type') return { screen: 'trainer', id };
     if (mode === 'edit' && isOwnModule(id)) return { screen: 'edit', id };
-    if (mode === 'cards') return { screen: 'cards', id };
-    if (mode === 'learn') return { screen: 'learn', id };
-    if (mode === 'test') return { screen: 'test', id };
+    if (MODE_NAMES[mode]) return { screen: mode, id };
     return { screen: 'module', id };
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
@@ -1642,7 +1731,7 @@ function parseRoute() {
   if (screen === 'custom') return { screen: 'trainer', id: 'custom' };
   if (screen === 'today') {
     if (id === 'type') return { screen: 'trainer', id: 'today' };
-    if (['cards', 'learn', 'test'].includes(id)) return { screen: id, id: 'today' };
+    if (MODE_NAMES[id]) return { screen: id, id: 'today' };
     return { screen: 'today' };
   }
   return { screen: 'home' };
@@ -1654,6 +1743,7 @@ function route() {
   const r = parseRoute();
   if (r.screen === 'home' && location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
   if (onTrainer) leaveTrainer();
+  stopMatchTimer();
   onTrainer = r.screen === 'trainer';
   $('trainer').hidden = !onTrainer;
   $('page').hidden = onTrainer;
@@ -1667,7 +1757,7 @@ function route() {
     // режим по очереди «Сегодня»
     renderCrumbs([['#/today', 'Сегодня'], [null, MODE_NAMES[r.screen]]]);
     startMode(r.screen, 'today');
-  } else if (['module', 'edit', 'cards', 'learn', 'test'].includes(r.screen)) {
+  } else if (r.screen === 'module' || r.screen === 'edit' || MODE_NAMES[r.screen]) {
     core.markOpened(r.id);
     const l = lessonInfo(r.id);
     const folderCrumb = [`#/folder/${l.group}`, folderOf(l.group).title];
@@ -1812,6 +1902,8 @@ function onPageAction(e) {
     onLearnAction(act, btn);
   } else if (act.startsWith('test-')) {
     onTestAction(act);
+  } else if (act.startsWith('match-')) {
+    onMatchAction(act, btn);
   } else if (act === 'new-folder') {
     const name = prompt('Название новой папки');
     if (name && name.trim()) location.hash = `#/folder/${core.createFolder(name).id}`;
