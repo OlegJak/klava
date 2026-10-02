@@ -217,9 +217,11 @@ function renderExplain(chunk) {
   const show = Boolean(note) && $('show-explain').checked && !textHidden();
   el.hidden = !show;
   if (!show) return;
-  const html = escapeHtml(note).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>');
-  el.innerHTML = `<span class="explain-icon">📘</span><div class="explain-body">${html}</div>`;
+  el.innerHTML = `<span class="explain-icon">📘</span><div class="explain-body">${noteHtml(note)}</div>`;
 }
+
+// Разметка объяснений: **жирный** и `формула`
+const noteHtml = (note) => escapeHtml(note).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>');
 
 // ---------- Диктант ----------
 // Фраза только звучит, её нужно набрать на слух и нажать Enter.
@@ -932,8 +934,8 @@ function lessonCount(id) {
 }
 
 // Уроки папки — её модули, в «Своём» ещё и «Свой текст»
-const folderLessons = (folderId) =>
-  [...core.modules(folderId).map((m) => m.id), ...Object.keys(SPECIAL).filter((id) => SPECIAL[id].group === folderId)];
+const folderLessons = (folderId) => [...core.modules(folderId).map((m) => m.id),
+  ...Object.keys(SPECIAL).filter((id) => SPECIAL[id].group === folderId && canType())];
 // Модуль открывается своей страницей, «Свой текст» — сразу тренажёром
 const lessonHref = (id) => (id === 'custom' ? '#/custom' : `#/module/${id}`);
 const lessonCards = (id) => core.module(id).cards;
@@ -993,13 +995,122 @@ function renderModule(id) {
     : actionBtn('copy-module', 'Скопировать и изменить') +
       (hiddenNow ? actionBtn('show-module', 'Вернуть в папку') : actionBtn('hide-module', 'Скрыть'))) + '</div>';
   const hiddenNote = hiddenNow ? '<p class="empty">Модуль скрыт: в папке его не видно.</p>' : '';
-  const typeMode = '<span class="mode-icon">⌨️</span><span class="tile-text"><b>Набор</b>' +
-    '<small>Печатать слова и фразы. Диктант и перевод на английский — в настройках набора</small></span>';
+  const mode = (path, icon, title, sub) => {
+    const inner = `<span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span>`;
+    return cards.length ? `<a class="mode-btn" href="#/module/${id}/${path}">${inner}</a>` : `<span class="mode-btn disabled">${inner}</span>`;
+  };
   return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
     `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}</small></div>${actions}</section>${hiddenNote}` +
     '<div class="modes">' +
-    (cards.length ? `<a class="mode-btn" href="#/module/${id}/type">${typeMode}</a>` : `<span class="mode-btn disabled">${typeMode}</span>`) +
+    mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
+    (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
     `</div>${list}`;
+}
+
+// Режимы набора нужны физической клавиатуре: на сенсорном экране без мыши их не показываем
+const canType = () => matchMedia('(any-pointer: fine)').matches;
+
+// ---------- Режим «Карточки» ----------
+// #/module/<id>/cards. Направление и «перемешать» запоминаются в настройках
+const flashcards = { moduleId: null, session: null, flipped: false };
+const flashDir = () => store.get('cards-dir', 'en-ru');
+const flashOptions = () => ({ shuffle: store.get('cards-shuffle', false) });
+
+function startFlash(moduleId, cards = core.module(moduleId).cards) {
+  flashcards.moduleId = moduleId;
+  flashcards.session = KlavaCore.flashSession(cards, flashOptions());
+  flashcards.flipped = false;
+  renderFlash();
+  flashAutoSpeak();
+}
+
+// Лицевая и оборотная стороны: «англ → рус» — термин и определение, «рус → англ» — наоборот
+function flashSides(card) {
+  const term = escapeHtml(card.term);
+  const def = escapeHtml(card.definition || '—');
+  const extra =
+    (card.example ? `<div class="flash-example"><span>${escapeHtml(card.example)}</span>` +
+      `${card.exampleTranslation ? `<small>${escapeHtml(card.exampleTranslation)}</small>` : ''}</div>` : '') +
+    (card.explanation ? `<div class="explain flash-explain"><span class="explain-icon">📘</span><div class="explain-body">${noteHtml(card.explanation)}</div></div>` : '');
+  return flashDir() === 'en-ru' ? { front: term, back: def, extra } : { front: def, back: term, extra };
+}
+
+function renderFlash() {
+  const s = flashcards.session;
+  const dir = flashDir();
+  const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="flash-dir" data-dir="${value}">${label}</button>`;
+  const bar = '<div class="flash-bar">' +
+    `<div class="seg">${seg('en-ru', 'англ → рус')}${seg('ru-en', 'рус → англ')}</div>` +
+    `<label class="radio"><input type="checkbox" id="flash-shuffle"${flashOptions().shuffle ? ' checked' : ''}><span>Перемешать</span></label>` +
+    `<span class="flash-progress">${s.done ? s.total : s.position} / ${s.total}</span></div>` +
+    `<div class="flash-track"><span style="width:${s.total ? (s.index / s.total) * 100 : 0}%"></span></div>`;
+
+  if (s.done) {
+    const n = s.unknown.length;
+    $('page-body').innerHTML = `<div class="flash">${bar}<div class="flash-done">` +
+      '<h2>Готово!</h2>' +
+      `<p>Знаю: <b class="dict-ok">${s.known.length}</b> · Не знаю: <b class="dict-bad">${n}</b></p>` +
+      '<div class="page-actions">' +
+      (n ? `<button class="primary-btn" data-act="flash-retry">Повторить незнакомые (${n})</button>` : '') +
+      '<button class="pill-btn" data-act="flash-restart">Начать заново</button>' +
+      `<a class="pill-btn" href="#/module/${flashcards.moduleId}">К модулю</a></div></div></div>`;
+    return;
+  }
+
+  const { front, back, extra } = flashSides(s.current);
+  const long = (html) => (html.length > 40 ? ' long' : '');
+  $('page-body').innerHTML = `<div class="flash">${bar}` +
+    `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
+    '<div class="flash-inner">' +
+    `<div class="face front"><span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType() ? 'Нажмите, чтобы перевернуть · Пробел' : 'Коснитесь, чтобы перевернуть'}</small></div>` +
+    `<div class="face back"><span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
+    '</div></div>' +
+    '<div class="flash-actions">' +
+    '<button class="flash-btn no" data-act="flash-no">✗ Не знаю <kbd>←</kbd></button>' +
+    '<button class="flash-btn speak" data-act="flash-speak" title="Произнести">🔊</button>' +
+    '<button class="flash-btn yes" data-act="flash-yes">✓ Знаю <kbd>→</kbd></button>' +
+    '</div></div>';
+}
+
+// Английская сторона звучит сама, когда появляется, — если в настройках включена озвучка
+function flashAutoSpeak() {
+  const s = flashcards.session;
+  if (s.done || !store.get('auto-read', true)) return;
+  const englishShown = flashDir() === 'en-ru' ? !flashcards.flipped : flashcards.flipped;
+  if (englishShown) speakText(s.current.term);
+}
+
+function flashFlip() {
+  flashcards.flipped = !flashcards.flipped;
+  document.querySelector('.flash-card')?.classList.toggle('flipped', flashcards.flipped);
+  if (flashcards.flipped) flashAutoSpeak();
+}
+
+function flashMark(known) {
+  flashcards.session = KlavaCore.flashAnswer(flashcards.session, known);
+  flashcards.flipped = false;
+  renderFlash();
+  flashAutoSpeak();
+}
+
+function onFlashAction(act, btn) {
+  const s = flashcards.session;
+  if (act === 'flash-flip') flashFlip();
+  else if (act === 'flash-yes' || act === 'flash-no') flashMark(act === 'flash-yes');
+  else if (act === 'flash-speak' && s.current) speakText(s.current.term);
+  else if (act === 'flash-retry') startFlash(flashcards.moduleId, s.unknown);
+  else if (act === 'flash-restart') startFlash(flashcards.moduleId);
+  else if (act === 'flash-dir') { store.set('cards-dir', btn.dataset.dir); startFlash(flashcards.moduleId); }
+}
+
+function onFlashKey(e) {
+  if (parseRoute().screen !== 'cards' || e.ctrlKey || e.metaKey || e.altKey) return;
+  // пробел и Enter на кнопках и полях работают как обычно
+  if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+  const act = { ' ': 'flash-flip', Enter: 'flash-flip', ArrowRight: 'flash-yes', ArrowLeft: 'flash-no' }[e.key];
+  if (!act || flashcards.session.done) return;
+  e.preventDefault();
+  onFlashAction(act);
 }
 
 // Выбор папки для своего модуля: свои папки, потом встроенные
@@ -1172,6 +1283,7 @@ function parseRoute() {
   if (screen === 'module' && id !== 'custom' && lessonInfo(id)) {
     if (mode === 'type') return { screen: 'trainer', id };
     if (mode === 'edit' && isOwnModule(id)) return { screen: 'edit', id };
+    if (mode === 'cards') return { screen: 'cards', id };
     return { screen: 'module', id };
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
@@ -1198,11 +1310,14 @@ function route() {
   scrollTo(0, 0);
   if (onTrainer) { openTrainer(r.id); return; }
 
-  if (r.screen === 'module' || r.screen === 'edit') {
+  if (r.screen === 'module' || r.screen === 'edit' || r.screen === 'cards') {
     core.markOpened(r.id);
     const l = lessonInfo(r.id);
     const folderCrumb = [`#/folder/${l.group}`, folderOf(l.group).title];
-    if (r.screen === 'edit') {
+    if (r.screen === 'cards') {
+      renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Карточки']]);
+      startFlash(r.id);
+    } else if (r.screen === 'edit') {
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Изменение']]);
       $('page-body').innerHTML = renderEditModule(r.id);
     } else {
@@ -1334,7 +1449,9 @@ function onPageAction(e) {
   if (!btn) return;
   const act = btn.dataset.act;
   const r = parseRoute();
-  if (act === 'new-folder') {
+  if (act.startsWith('flash-')) {
+    onFlashAction(act, btn);
+  } else if (act === 'new-folder') {
     const name = prompt('Название новой папки');
     if (name && name.trim()) location.hash = `#/folder/${core.createFolder(name).id}`;
   } else if (act === 'rename-folder') {
@@ -1376,6 +1493,13 @@ function onNewModule(e) {
 
 function initPages() {
   $('page-body').addEventListener('click', onPageAction);
+  document.addEventListener('keydown', onFlashKey);
+  $('page-body').addEventListener('change', (e) => {
+    if (e.target.id !== 'flash-shuffle') return;
+    store.set('cards-shuffle', e.target.checked);
+    e.target.blur();
+    startFlash(flashcards.moduleId);
+  });
   $('page-body').addEventListener('change', onEditorChange);
   $('page-body').addEventListener('change', onImportInput);
   $('page-body').addEventListener('input', onImportInput);

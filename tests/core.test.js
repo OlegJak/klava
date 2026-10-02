@@ -323,6 +323,60 @@ test('свой модуль тоже можно скопировать', () => {
   assert.throws(() => core.copyModule('nope'));
 });
 
+// ---------- Режим «Карточки» ----------
+
+const { flashSession, flashAnswer, flashRetry } = KlavaCore;
+const deck = ['a', 'b', 'c', 'd'].map((t) => ({ id: t, term: t, definition: t.toUpperCase() }));
+const ids = (list) => list.map((c) => c.id);
+
+test('карточки: по порядку, «знаю / не знаю» двигают дальше, в конце — итог', () => {
+  let s = flashSession(deck);
+  assert.equal(s.current.id, 'a');
+  assert.equal(s.done, false);
+  s = flashAnswer(s, true);
+  s = flashAnswer(s, false);
+  assert.equal(s.current.id, 'c');
+  assert.deepEqual([s.position, s.total], [3, 4]);
+  s = flashAnswer(flashAnswer(s, false), true);
+  assert.equal(s.done, true);
+  assert.equal(s.current, null);
+  assert.deepEqual(ids(s.known), ['a', 'd']);
+  assert.deepEqual(ids(s.unknown), ['b', 'c']);
+});
+
+test('карточки: занятие не меняется на месте — каждый ответ даёт новое состояние', () => {
+  const s = flashSession(deck);
+  flashAnswer(s, true);
+  assert.equal(s.current.id, 'a');
+  assert.deepEqual(s.known, []);
+});
+
+test('карточки: ответ после конца ничего не меняет', () => {
+  let s = flashSession(deck.slice(0, 1));
+  s = flashAnswer(s, true);
+  assert.deepEqual(flashAnswer(s, false), s);
+});
+
+test('карточки: перемешивание использует переданный источник случайности', () => {
+  const s = flashSession(deck, { shuffle: true, random: () => 0 });
+  assert.deepEqual(ids(s.cards), ['b', 'c', 'd', 'a']);
+  assert.deepEqual(ids(flashSession(deck, { shuffle: false }).cards), ['a', 'b', 'c', 'd']);
+});
+
+test('карточки: «повторить незнакомые» — новое занятие только из них', () => {
+  let s = flashSession(deck);
+  for (const known of [true, false, true, false]) s = flashAnswer(s, known);
+  const again = flashRetry(s);
+  assert.deepEqual(ids(again.cards), ['b', 'd']);
+  assert.deepEqual([again.position, again.total, again.done], [1, 2, false]);
+});
+
+test('карточки: пустой модуль — занятие сразу закончено', () => {
+  const s = flashSession([]);
+  assert.equal(s.done, true);
+  assert.equal(s.total, 0);
+});
+
 // ---------- Импорт ----------
 
 const { parseImport } = KlavaCore;

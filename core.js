@@ -304,6 +304,38 @@
     };
   }
 
+  // ---------- Режим «Карточки» ----------
+  // Занятие — неизменяемое состояние: каждый ответ возвращает новое.
+  // { cards, index, known, unknown, current, position (с 1), total, done }
+
+  function shuffled(list, random) {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function flashState(cards, index, known, unknown) {
+    const done = index >= cards.length;
+    return { cards, index, known, unknown, current: done ? null : cards[index], position: Math.min(index + 1, cards.length), total: cards.length, done };
+  }
+
+  // random — источник случайности (Math.random на сайте, предсказуемый в тестах)
+  const flashSession = (cards, { shuffle = false, random = Math.random } = {}) =>
+    flashState(shuffle ? shuffled(cards, random) : cards.slice(), 0, [], []);
+
+  function flashAnswer(s, known) {
+    if (s.done) return s;
+    return flashState(s.cards, s.index + 1,
+      known ? [...s.known, s.current] : s.known,
+      known ? s.unknown : [...s.unknown, s.current]);
+  }
+
+  // «Повторить незнакомые»: новое занятие из карточек, отмеченных «не знаю»
+  const flashRetry = (s, options) => flashSession(s.unknown, options);
+
   // ---------- Импорт ----------
   // Разделители: готовые варианты или свой текст. Тире — длинное или короткое с пробелами вокруг или без,
   // дефис — только с пробелами вокруг, чтобы не резать слова вроде well-known
@@ -397,5 +429,6 @@
     return { inCls, tCls, matched, errs };
   }
 
-  return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport };
+  return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
+    flashSession, flashAnswer, flashRetry };
 });

@@ -135,6 +135,52 @@ button { padding: 6px 14px; cursor: pointer; }
 .card-def { color: var(--muted); }
 .empty { color: var(--muted); }
 
+/* Режим «Карточки» */
+.flash { display: flex; flex-direction: column; gap: 14px; max-width: 720px; margin: 16px auto 0; }
+.flash-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.seg { display: inline-flex; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+.seg-btn { padding: 4px 12px; border: none; border-radius: 999px; background: none; font-size: 13px; color: var(--muted); }
+.seg-btn.on { background: var(--accent); color: #fff; }
+.flash-progress { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.flash-track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.flash-track span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+
+.flash-card { perspective: 1400px; cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; }
+.flash-inner { display: grid; min-height: 320px; transition: transform .4s; transform-style: preserve-3d; }
+.flash-card.flipped .flash-inner { transform: rotateY(180deg); }
+.face {
+  grid-area: 1 / 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: 28px 24px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / .08);
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+}
+.face.back { transform: rotateY(180deg); }
+.flash-card:focus-visible .face { border-color: var(--accent); }
+.flash-text { font-size: 34px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.flash-text.long { font-size: 22px; font-weight: 500; }
+.flash-hint { color: var(--muted); font-size: 12px; }
+.flash-example { display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
+.flash-example small { color: var(--muted); font-style: italic; font-size: 14px; }
+.flash-explain { text-align: left; margin: 0; }
+
+.flash-actions { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; }
+.flash-btn { padding: 14px; border-radius: 12px; font-size: 16px; font-weight: 600; }
+.flash-btn kbd { margin-left: 4px; opacity: .6; }
+.flash-btn.no { color: var(--bad); }
+.flash-btn.no:hover { border-color: var(--bad); }
+.flash-btn.yes { color: var(--ok); }
+.flash-btn.yes:hover { border-color: var(--ok); }
+.flash-btn.speak { padding: 14px 18px; }
+.flash-done { padding: 32px 24px; text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+.flash-done h2 { margin: 0 0 8px; }
+.flash-done .page-actions { justify-content: center; margin-top: 16px; }
+@media (prefers-reduced-motion: reduce) { .flash-inner, .flash-track span { transition: none; } }
+
 .hidden-modules { margin-top: 24px; }
 .hidden-modules summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
 .hidden-modules .tile { opacity: .6; }
@@ -495,6 +541,17 @@ kbd {
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
   .edit-main { grid-template-columns: 1fr; }
   .imp-seps { grid-template-columns: 1fr; }
+  /* Карточки одной рукой: карточка заполняет экран, кнопки — внизу под большим пальцем */
+  .flash { margin-top: 8px; }
+  .flash-inner { min-height: calc(100svh - 300px); }
+  .flash-text { font-size: 28px; }
+  .flash-actions {
+    position: sticky; bottom: 0;
+    padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+    background: var(--bg);
+  }
+  .flash-btn { padding: 18px 10px; }
+  .flash-btn kbd { display: none; }
   .module-head { flex-wrap: wrap; }
   .module-head .page-actions { margin-left: 0; width: 100%; }
 }
