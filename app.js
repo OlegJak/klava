@@ -630,7 +630,7 @@ function finish() {
   const speed = speedOf(state.lessonChars, state.lessonMs); // средняя по строкам урока
   const best = store.get('best', 0);
   const record = speed > best;
-  if (record) { store.set('best', speed); celebrate(); }
+  if (record) { store.set('best', speed); celebrate(); } else sfx('finish');
   $('result-text').innerHTML =
     `Скорость: <b>${speed}</b> зн/мин (≈${Math.round(speed / 5)} слов/мин)<br>` +
     `Точность: <b>${accuracy()}%</b>, ошибок: <b>${state.errors}</b>` +
@@ -1121,8 +1121,76 @@ function openDialog({ title, text = '', input = null, choices = null, value = ''
 const askText = (title, { value = '', placeholder = '', ok = 'Готово' } = {}) => openDialog({ title, input: { value, placeholder }, ok });
 const askConfirm = (title, text, ok = 'Удалить') => openDialog({ title, text, ok, danger: true });
 
+// ---------- Звуки ----------
+// Короткие звуки синтезируются в браузере (Web Audio), без файлов. Выключаются кнопкой ♪ рядом с темой
+const sfxOn = () => store.get('sfx', true);
+let audioCtx = null;
+
+// Одна нота: частота, начало (с), длительность (с), форма волны, громкость
+function tone(ctx, freq, at, dur, type = 'sine', vol = 0.07, toFreq = null) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, ctx.currentTime + at);
+  if (toFreq) osc.frequency.exponentialRampToValueAtTime(toFreq, ctx.currentTime + at + dur);
+  gain.gain.setValueAtTime(0.0001, ctx.currentTime + at);
+  gain.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + at + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + dur);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(ctx.currentTime + at);
+  osc.stop(ctx.currentTime + at + dur + 0.02);
+}
+
+// Короткий шум — «шурх» переворота карточки
+function swish(ctx, vol = 0.05) {
+  const len = Math.floor(ctx.sampleRate * 0.12);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ctx.createBufferSource();
+  const filter = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  filter.type = 'bandpass';
+  filter.frequency.setValueAtTime(1800, ctx.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(700, ctx.currentTime + 0.12);
+  gain.gain.value = vol;
+  src.connect(filter).connect(gain).connect(ctx.destination);
+  src.start();
+}
+
+const SOUNDS = {
+  correct: (c) => { tone(c, 880, 0, 0.12); tone(c, 1318.5, 0.08, 0.18); },
+  wrong: (c) => { tone(c, 220, 0, 0.22, 'triangle', 0.09, 150); },
+  know: (c) => { tone(c, 1046.5, 0, 0.12, 'sine', 0.05); },
+  dontKnow: (c) => { tone(c, 330, 0, 0.14, 'triangle', 0.05, 260); },
+  flip: (c) => swish(c),
+  pop: (c) => { tone(c, 600, 0, 0.09, 'sine', 0.07, 1100); },
+  finish: (c) => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(c, f, i * 0.09, 0.22, 'sine', 0.06)),
+};
+
+function sfx(name) {
+  if (!sfxOn() || !SOUNDS[name]) return;
+  try {
+    audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    SOUNDS[name](audioCtx);
+  } catch {}
+}
+
+// Кнопки ♪ в шапке и в тренажёре: значок и подсказка по состоянию
+function syncSfxButtons() {
+  for (const btn of document.querySelectorAll('.sfx-btn')) {
+    btn.innerHTML = icon(sfxOn() ? 'music' : 'music-off');
+    btn.dataset.tip = sfxOn() ? 'Звуки включены' : 'Звуки выключены';
+    btn.setAttribute('aria-label', btn.dataset.tip);
+    btn.classList.toggle('off', !sfxOn());
+  }
+}
+
 // Конфетти за хороший результат: ~120 бумажек падают и кружатся пару секунд
 function celebrate() {
+  sfx('finish');
   if (reducedMotion()) return;
   const canvas = $('confetti');
   const ctx = canvas.getContext('2d');
@@ -1739,6 +1807,7 @@ function flashSpeak() {
 
 function flashFlip() {
   flashcards.flipped = !flashcards.flipped;
+  sfx('flip');
   document.querySelector('.flash-card')?.classList.toggle('flipped', flashcards.flipped);
   if (flashcards.flipped) flashAutoSpeak();
 }
@@ -1746,6 +1815,7 @@ function flashFlip() {
 // Ответ «знаю / не знаю»: карточка улетает вправо или влево, потом появляется следующая
 function flashMark(known) {
   if (flashcards.busy) return;
+  sfx(known ? 'know' : 'dontKnow');
   const el = document.querySelector('.flash-card');
   const next = () => {
     flashcards.busy = false;
@@ -1919,6 +1989,7 @@ function renderLearn() {
 }
 
 function learnRespond(result, given, choice) {
+  sfx(result === 'wrong' ? 'wrong' : 'correct');
   learn.feedback = { result, given, choice };
   renderLearn();
   if (learn.state.question.direction === 'ru-en') learnAutoSpeak();
@@ -2111,7 +2182,7 @@ function gradeTestNow(responses) {
   quiz.questions.forEach((q, i) => core.recordAnswer(q.card.id, q.direction, quiz.graded.results[i] !== 'wrong'));
   renderTest();
   scrollTo(0, 0);
-  if (quiz.graded.percent >= 80) celebrate();
+  if (quiz.graded.percent >= 80) celebrate(); else sfx('finish');
 }
 
 // Число вопросов: от 1 до TEST_MAX; пустое или не число — 10
@@ -2216,6 +2287,7 @@ function matchTap(tileId) {
   match.game = KlavaCore.matchPick(match.game, tileId);
   const last = match.game.last;
   if (last?.result === 'match') core.recordAnswer(last.cardIds[0], 'en-ru', true);
+  if (last?.result) sfx(last.result === 'match' ? 'pop' : 'wrong');
   if (match.game.done) {
     stopMatchTimer();
     const elapsed = performance.now() - match.startedAt;
@@ -3845,6 +3917,15 @@ function init() {
 
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   applyTheme(store.get('theme', prefersDark ? 'dark' : 'light'));
+  syncSfxButtons();
+  for (const btn of document.querySelectorAll('.sfx-btn')) {
+    btn.addEventListener('click', (e) => {
+      store.set('sfx', !sfxOn());
+      syncSfxButtons();
+      sfx('pop'); // включили — сразу слышно, как звучит
+      e.currentTarget.blur();
+    });
+  }
   for (const btn of document.querySelectorAll('.theme-btn')) {
     btn.addEventListener('click', (e) => {
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';

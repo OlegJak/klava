@@ -33,6 +33,8 @@
     'star-fill': '<path fill="currentColor" d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/>',
     play: '<path d="M7 5l12 7-12 7z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    'music-off': '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><path d="M3 3l18 18"/>',
     minus: '<path d="M5 12h14"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     shuffle: '<path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>',

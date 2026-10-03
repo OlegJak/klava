@@ -1061,7 +1061,12 @@ button .i, a .i { pointer-events: none; }
 .tile .tile-text { flex: 1; }
 
 /* Тема — значком */
-.theme-btn { font-size: 17px; padding: 5px 10px; line-height: 1; }
+.theme-btn, .sfx-btn { font-size: 17px; padding: 5px 10px; line-height: 1; }
+.sfx-btn .i { width: 18px; height: 18px; vertical-align: -.25em; }
+.sfx-btn.off { color: var(--muted); }
+/* в шапке подсказка — снизу, иначе уйдёт за край экрана */
+.top [data-tip]::after { top: calc(100% + 8px); bottom: auto; }
+body.guest .top .sfx-btn { display: none; }
 
 /* Нажатие — кнопка чуть «проседает» */
 button:active:not(:disabled), .tile:active, .mode-btn:active, a.pill-btn:active { transform: scale(.97); }
@@ -1138,7 +1143,7 @@ button:active:not(:disabled), .tile:active, .mode-btn:active, a.pill-btn:active 
   .lesson-btn { min-width: 0; flex: 1; }
   /* шапка в одну строку: знак слева, облако, «Выйти» и тема — справа; крошки — строкой ниже */
   .account { order: 2; margin-left: auto; }
-  .top .theme-btn { order: 3; margin-left: 0; }
+  .top .theme-btn, .top .sfx-btn { order: 3; margin-left: 0; }
   .top { position: static; }
   .stats-row { gap: 8px; }
   .today-banner { flex-wrap: wrap; }
