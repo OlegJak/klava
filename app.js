@@ -985,7 +985,16 @@ const allFolders = () => {
 };
 const folderOf = (id) => allFolders().find((f) => f.id === id);
 // Папки, куда можно положить свой модуль, — все
-const moduleFolders = allFolders;
+// «Своё» — папка тренажёра набора: «Мои слова» (слова, сохранённые при наборе) и «Свой текст».
+// На главной и в списках папок её нет — она открывается из тренажёра. Видна, только если человек
+// сам положил туда другие модули (чтобы они не потерялись) или других папок нет совсем
+const ownHasModules = () => core.modules('own').some((m) => m.id !== 'mine');
+const homeFolders = () => allFolders().filter((f) => f.id !== 'own' || ownHasModules());
+// keep — папка, которую оставить в списке (текущая папка модуля)
+function moduleFolders(keep) {
+  const list = allFolders().filter((f) => f.id !== 'own' || f.id === keep || ownHasModules());
+  return list.length ? list : allFolders();
+}
 const isOwnModule = (id) => core.module(id)?.builtIn === false;
 const escapeAttr = (s) => escapeHtml(s).replace(/"/g, '&quot;');
 // Название, значок и папка — для модуля или особого урока
@@ -1478,7 +1487,7 @@ function renderHome() {
   if (!core.modules().some((m) => m.builtIn || m.cards.length)) return renderWelcome();
   const recent = core.recent().filter((id) => lessonInfo(id) && !core.isHidden(id));
   return renderHomeStats() + todayBanner() + (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
-    tilesSection('Папки', allFolders().map(folderTile),
+    tilesSection('Папки', homeFolders().map(folderTile),
       `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}${actionLink('#/import', 'Импорт')}</div>`);
 }
 
@@ -2208,7 +2217,7 @@ function onFlashKey(e) {
 // Последний пункт — «+ Новая папка…»: создаёт папку и сразу выбирает её (см. initPickers)
 const NEW_FOLDER = '__new-folder__';
 const folderSelect = (id, selected) =>
-  `<select id="${id}">${moduleFolders().map((f) =>
+  `<select id="${id}">${moduleFolders(selected).map((f) =>
     `<option value="${escapeAttr(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.title)}</option>`).join('')}` +
   `<option value="${NEW_FOLDER}">+ Новая папка…</option></select>`;
 
@@ -2561,6 +2570,20 @@ const MODES = [
   ['match', 'match', 'Подбор пар', 'Соединить термины с переводами на время'],
   ['type', 'keyboard', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский'],
 ];
+// В тренажёре набора — папка «Своё»: «Мои слова» и «Свой текст» (кроме того, что открыт сейчас)
+function renderTrainerOwn(current) {
+  const el = $('trainer-own');
+  const items = [
+    core.module('mine')?.cards.length && current !== 'mine' && ['#/module/mine/type', 'star', 'Мои слова',
+      `${plural(core.module('mine').cards.length, 'слово', 'слова', 'слов')} — сохранённые при наборе`],
+    current !== 'custom' && ['#/custom', 'file', 'Свой текст', 'Вставьте любой английский текст и наберите его'],
+  ].filter(Boolean);
+  el.hidden = !items.length;
+  el.innerHTML = '<div class="mode-switch-head"><h2>Своё</h2></div><div class="modes">' + items.map(([href, iconName, title, sub]) =>
+    `<a class="mode-btn" data-mode="type" href="${href}"><span class="mode-icon">${icon(iconName)}</span>` +
+    `<span class="tile-text"><b>${title}</b><small>${sub}</small></span></a>`).join('') + '</div>';
+}
+
 // el — куда рисовать: под занятием на странице или в тренажёре набора
 function renderModeSwitch(deckId, current, el = $('mode-switch')) {
   el.hidden = !deckId;
@@ -2585,6 +2608,7 @@ function openTrainer(id) {
   $('back').href = id === 'custom' ? '#/' : deckHref(id);
   $('back').title = { custom: 'На главную', today: 'К повторению' }[id] || 'К модулю';
   renderModeSwitch(id === 'custom' ? null : id, 'type', $('trainer-modes'));
+  renderTrainerOwn(id);
   startLesson();
 }
 

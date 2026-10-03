@@ -1613,7 +1613,7 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
 .mode-switch-head .pill-btn .i { width: 16px; height: 16px; }
 .mode-switch.collapsed .mode-switch-head { justify-content: center; }
 /* в тренажёре набора — на всю ширину, как настройки над ним */
-#trainer-modes { max-width: none; margin-top: 28px; padding: 0; }
+#trainer-modes, #trainer-own { max-width: none; margin-top: 28px; padding: 0; }
 
 /* Подсказка по клавишам под карточками */
 .kbd-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 28px; margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--muted); }
