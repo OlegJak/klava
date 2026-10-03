@@ -1652,11 +1652,13 @@ function startFlash(moduleId, { fresh = false, retry = null } = {}) {
 }
 
 // Лицевая и оборотная стороны: «англ → рус» — термин и определение, «рус → англ» — наоборот
+const cardImage = (card) => (card?.image ? `<img class="card-img" src="${escapeAttr(card.image)}" alt="">` : '');
+
 function flashSides(card) {
   const term = escapeHtml(card.term);
   const def = escapeHtml(card.definition || '—');
+  // картинка — подсказка для образной памяти: она видна сразу, вместе с вопросом (см. renderFlash, renderLearn)
   const extra =
-    (card.image ? `<img class="card-img" src="${escapeAttr(card.image)}" alt="">` : '') +
     (card.example ? `<div class="flash-example"><span>${escapeHtml(card.example)}</span>` +
       `${card.exampleTranslation ? `<small>${escapeHtml(card.exampleTranslation)}</small>` : ''}</div>` : '') +
     (card.explanation ? `<div class="explain flash-explain"><span class="explain-icon">${icon('book')}</span><div class="explain-body">${noteHtml(card.explanation)}</div></div>` : '');
@@ -1669,10 +1671,10 @@ function renderFlash() {
   const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="flash-dir" data-dir="${value}">${label}</button>`;
   const bar = '<div class="flash-bar">' +
     `<div class="seg">${seg('en-ru', dirLabels(flashcards.moduleId)['en-ru'])}${seg('ru-en', dirLabels(flashcards.moduleId)['ru-en'])}</div>` +
-    `<label class="radio"><input type="checkbox" id="flash-shuffle"${flashOptions().shuffle ? ' checked' : ''}><span>Перемешать</span></label>` +
+    `<label class="icon-toggle" data-tip="Перемешать"><input type="checkbox" id="flash-shuffle" aria-label="Перемешать"${flashOptions().shuffle ? ' checked' : ''}>${icon('shuffle')}</label>` +
     `<span class="flash-progress">${s.done ? s.total : s.position} / ${s.total}</span>` +
-    (s.index && !s.done ? `<button class="icon-btn voice-btn" data-act="flash-restart" title="Начать сначала">${icon('restart')}</button>` : '') +
-    `<button class="icon-btn voice-btn" data-act="voice-settings" title="Голос озвучки">${icon('volume')}</button></div>` +
+    (s.index && !s.done ? `<button class="icon-btn voice-btn" data-act="flash-restart" data-tip="Начать сначала" aria-label="Начать сначала">${icon('restart')}</button>` : '') +
+    `<button class="icon-btn voice-btn" data-act="voice-settings" data-tip="Голос озвучки" aria-label="Голос озвучки">${icon('volume')}</button></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.index / s.total) * 100 : 0}%"></span></div>`;
 
   if (s.done) {
@@ -1693,10 +1695,10 @@ function renderFlash() {
     `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
     '<div class="flash-inner">' +
     '<span class="swipe-stamp yes">Know</span><span class="swipe-stamp no">Don’t know</span>' +
-    `<div class="face front"><span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
+    `<div class="face front">${cardImage(s.current)}<span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
       ? 'Нажмите, чтобы перевернуть · Пробел · ← → — ответить'
       : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
-    `<div class="face back"><span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
+    `<div class="face back">${cardImage(s.current)}<span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
     '</div></div>' +
     '<div class="flash-actions">' +
     `<button class="flash-btn no" data-act="flash-no">${icon('x')} Don’t know <kbd>←</kbd></button>` +
@@ -1835,7 +1837,7 @@ function renderLearn() {
     `<div class="seg">${seg('en-ru', dirLabels(learn.moduleId)['en-ru'])}${seg('ru-en', dirLabels(learn.moduleId)['ru-en'])}</div>` +
     (s.done ? '' : `<span class="learn-round">Раунд ${s.round}</span>`) +
     `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span>` +
-    `<button class="icon-btn voice-btn" data-act="voice-settings" title="Голос озвучки">${icon('volume')}</button></div>` +
+    `<button class="icon-btn voice-btn" data-act="voice-settings" data-tip="Голос озвучки" aria-label="Голос озвучки">${icon('volume')}</button></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.mastered / s.total) * 100 : 0}%"></span></div>`;
 
   if (s.done) {
@@ -1892,7 +1894,7 @@ function renderLearn() {
 
   $('page-body').innerHTML = `<div class="flash">${bar}<div class="learn-card${fb ? ` fb-${fb.result}` : ''}">` +
     `<div class="learn-head"><small>${what} ${target}</small>${speakBtn}</div>` +
-    `<div class="flash-text${q.prompt.length > 40 ? ' long' : ''}">${escapeHtml(q.prompt)}</div>` +
+    `<div class="learn-prompt"><div class="flash-text${q.prompt.length > 40 ? ' long' : ''}">${escapeHtml(q.prompt)}</div>${cardImage(q.card)}</div>` +
     `${body}${verdict}</div>${next}</div>`;
   if (q.stage === 2 && !fb) $('learn-input').focus();
 }
@@ -1997,7 +1999,7 @@ function renderTestQuestions() {
     } else {
       answer = `<input class="test-input" name="tq${i}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Ваш ответ">`;
     }
-    return `<section class="test-q">${head}<div class="test-prompt">${escapeHtml(q.prompt)}</div>${answer}</section>`;
+    return `<section class="test-q">${head}<div class="learn-prompt"><div class="test-prompt">${escapeHtml(q.prompt)}</div>${cardImage(q.card)}</div>${answer}</section>`;
   }).join('');
   return `<div class="test">${body}<div class="test-submit"><button class="primary-btn" data-act="test-check">Проверить ответы</button></div></div>`;
 }
