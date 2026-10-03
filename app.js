@@ -1201,9 +1201,9 @@ function renderLanding() {
           `<span class="demo-face back"><small>Перевод</small><b id="demo-def">${def}</b></span>` +
         '</span></button>' +
         '<div class="demo-actions" id="demo-actions">' +
-          `<button class="demo-btn bad" data-demo="0">${icon('x')}Don’t know</button>` +
+          `<button class="demo-btn bad" data-demo="0">${icon('x')}Не знаю</button>` +
           `<span class="demo-count" id="demo-count">1 / ${LANDING_DEMO.length}</span>` +
-          `<button class="demo-btn ok" data-demo="1">${icon('check')}Know</button>` +
+          `<button class="demo-btn ok" data-demo="1">${icon('check')}Знаю</button>` +
         '</div>' +
         '<div class="demo-progress"><span id="demo-bar"></span></div>' +
       '</div>' +
