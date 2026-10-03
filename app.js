@@ -2547,8 +2547,8 @@ const MODES = [
   ['match', 'match', 'Подбор пар', 'Соединить термины с переводами на время'],
   ['type', 'keyboard', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский'],
 ];
-function renderModeSwitch(deckId, current) {
-  const el = $('mode-switch');
+// el — куда рисовать: под занятием на странице или в тренажёре набора
+function renderModeSwitch(deckId, current, el = $('mode-switch')) {
   el.hidden = !deckId;
   if (!deckId) { el.innerHTML = ''; return; }
   const hidden = store.get('other-modes-hidden', false);
@@ -2570,6 +2570,7 @@ function openTrainer(id) {
   $('lesson-title').textContent = l.title;
   $('back').href = id === 'custom' ? '#/' : deckHref(id);
   $('back').title = { custom: 'На главную', today: 'К повторению' }[id] || 'К модулю';
+  renderModeSwitch(id === 'custom' ? null : id, 'type', $('trainer-modes'));
   startLesson();
 }
 
@@ -3308,12 +3309,17 @@ function initPages() {
   initFlashSwipe();
   initTileMenu();
   initPickers();
-  $('mode-switch').addEventListener('click', (e) => {
-    if (!e.target.closest('[data-act="toggle-modes"]')) return;
-    store.set('other-modes-hidden', !store.get('other-modes-hidden', false));
-    const r = parseRoute();
-    renderModeSwitch(r.id, r.screen);
-  });
+  for (const box of [$('mode-switch'), $('trainer-modes')]) {
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act="toggle-modes"]');
+      if (!btn) return;
+      btn.blur(); // в тренажёре клавиши должны уходить в набор, а не в кнопку
+      store.set('other-modes-hidden', !store.get('other-modes-hidden', false));
+      const r = parseRoute();
+      if (onTrainer) renderModeSwitch(state.lessonId, 'type', $('trainer-modes'));
+      else renderModeSwitch(r.id, r.screen);
+    });
+  }
   $('page-body').addEventListener('change', onTermInput);
   $('page-body').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.closest('.term-input')) return;
