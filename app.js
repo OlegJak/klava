@@ -1157,8 +1157,9 @@ const LANDING_DEMO = [
 
 function renderLanding() {
   const cta = (text, cls = '') => `<button class="cta-btn ${cls}" data-act="sign-in">${text}${icon('arrow')}</button>`;
-  const stat = (n, suffix, title, sub) =>
-    `<div class="land-stat"><b><span data-count="${n}">${n}</span>${suffix}</b><span>${title}</span><small>${sub}</small></div>`;
+  // from — с какого числа считать: стоимость «падает» со 100 до 0
+  const stat = (n, suffix, title, sub, from = 0) =>
+    `<div class="land-stat"><b><span data-count="${n}" data-from="${from}">${n}</span>${suffix}</b><span>${title}</span><small>${sub}</small></div>`;
   const mode = (m, iconName, title, sub, tag = '') =>
     `<article class="land-mode reveal" data-mode="${m}"><span class="mode-icon">${icon(iconName)}</span>` +
     `<b>${title}</b><p>${sub}</p>${tag ? `<span class="land-tag">${tag}</span>` : ''}</article>`;
@@ -1214,7 +1215,7 @@ function renderLanding() {
       stat(5, '', 'ступеней повторения', 'через 1, 3, 7, 14 и 30 дней') +
       stat(3, '', 'языка', 'английский, русский и эстонский — с озвучкой') +
       stat(100, '%', 'ваши данные', 'модули и прогресс видите только вы') +
-      stat(0, '&nbsp;€', 'стоимость', 'без подписки и платных уровней') +
+      stat(0, '&nbsp;€', 'стоимость', 'без подписки и платных уровней', 100) +
     '</section>' +
 
     // Почему забываем и как помогает интервальное повторение
@@ -1331,11 +1332,13 @@ function initLanding() {
   const root = $('page-body').querySelector('.landing');
   const countUp = (el) => {
     const target = +el.dataset.count;
-    if (reducedMotion() || !target) return;
+    const from = +el.dataset.from;
+    if (reducedMotion() || target === from) return;
     const start = performance.now();
+    const ms = from > target ? 1800 : 1200;
     (function frame(t) {
-      const k = Math.min(1, (t - start) / 1200);
-      el.textContent = Math.round(target * (1 - (1 - k) ** 3));
+      const k = Math.min(1, (t - start) / ms);
+      el.textContent = Math.round(from + (target - from) * (1 - (1 - k) ** 3));
       if (k < 1) requestAnimationFrame(frame);
     })(start);
   };
