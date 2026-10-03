@@ -566,14 +566,19 @@
   // Типы раздаются по кругу перемешанным карточкам, каждая карточка — один раз
   const TEST_TYPES = ['choice', 'truefalse', 'written'];
 
+  // direction: 'en-ru', 'ru-en' или 'mixed' — в выборе и «верно/неверно» направление случайное для каждого вопроса,
+  // а в письменных всегда нужно написать термин. Для смешанного нужны обе стороны карточки
   function buildTest(cards, { count = 10, direction = 'en-ru', types = TEST_TYPES, random = Math.random } = {}) {
-    const { ask, want } = sidesOf(direction);
-    const usable = cards.filter((c) => (want(c) || '').trim());
+    const has = (x) => (x || '').trim();
+    const usable = cards.filter((c) => (direction === 'mixed' ? has(c.term) && has(c.definition) : has(sidesOf(direction).want(c))));
     const picked = shuffled(usable, random).slice(0, count);
     return picked.map((card, i) => {
       const type = types[i % types.length];
+      let dir = direction;
+      if (dir === 'mixed') dir = type !== 'written' && random() < 0.5 ? 'en-ru' : 'ru-en';
+      const { ask, want } = sidesOf(dir);
       const answer = want(card);
-      const q = { card, type, prompt: ask(card), answer };
+      const q = { card, type, direction: dir, prompt: ask(card), answer };
       if (type === 'choice') q.choices = shuffled([answer, ...distractors(usable, want, answer, 3, random)], random);
       if (type === 'truefalse') {
         const [other] = distractors(usable, want, answer, 1, random);

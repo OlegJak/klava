@@ -1978,16 +1978,20 @@ function renderTest() {
   $('page-body').innerHTML = quiz.graded ? renderTestResult() : renderTestQuestions();
 }
 
+// У теста своё направление: кроме «англ → рус» и обратно есть «Смешанно»
+const testDir = () => store.get('test-dir', flashDir());
+
 function renderTestSetup() {
   const total = deckCards(quiz.deckId).length;
-  const dir = flashDir();
+  const dir = testDir();
   const radio = (value, label) =>
     `<label class="radio"><input type="radio" name="test-dir" value="${value}"${dir === value ? ' checked' : ''}><span>${label}</span></label>`;
   const types = testTypes();
   return '<div class="form test-setup"><h1>Тест</h1>' +
     `<label class="field"><span>Вопросов (карточек в наборе: ${total})</span>` +
     `<input type="number" id="test-count" min="1" max="${total}" value="${Math.min(store.get('test-count', 10), total)}"></label>` +
-    `<fieldset><legend>Направление</legend>${radio('en-ru', dirLabels(quiz.deckId)['en-ru'])}${radio('ru-en', dirLabels(quiz.deckId)['ru-en'])}</fieldset>` +
+    `<fieldset><legend>Направление</legend>${radio('en-ru', dirLabels(quiz.deckId)['en-ru'])}${radio('ru-en', dirLabels(quiz.deckId)['ru-en'])}` +
+    `${radio('mixed', 'Смешанно')}<small class="fieldset-hint">Смешанно: выбор — в обе стороны, писать — термин</small></fieldset>` +
     '<fieldset><legend>Типы вопросов</legend>' + Object.entries(TEST_TYPE_NAMES).map(([t, name]) =>
       `<label class="radio"><input type="checkbox" name="test-type" value="${t}"${types.includes(t) ? ' checked' : ''}><span>${name}</span></label>`).join('') +
     '</fieldset>' +
@@ -2057,12 +2061,12 @@ function renderTestResult() {
 
 function testStart() {
   const types = [...document.querySelectorAll('[name="test-type"]:checked')].map((x) => x.value);
-  if (!types.length) { alert('Выберите хотя бы один тип вопросов'); return; }
+  if (!types.length) { toast('Выберите хотя бы один тип вопросов', 'alert'); return; }
   const count = Math.max(1, Number($('test-count').value) || 10);
   store.set('test-count', count);
   store.set('test-types', types);
-  store.set('cards-dir', document.querySelector('[name="test-dir"]:checked').value);
-  quiz.settings = { count, types, direction: flashDir() };
+  store.set('test-dir', document.querySelector('[name="test-dir"]:checked').value);
+  quiz.settings = { count, types, direction: testDir() };
   makeTest();
 }
 
@@ -2087,7 +2091,7 @@ function testCheck() {
 function gradeTestNow(responses) {
   quiz.graded = { ...KlavaCore.gradeTest(quiz.questions, responses), responses };
   // каждый ответ — в повторение
-  quiz.questions.forEach((q, i) => core.recordAnswer(q.card.id, quiz.settings.direction, quiz.graded.results[i] !== 'wrong'));
+  quiz.questions.forEach((q, i) => core.recordAnswer(q.card.id, q.direction, quiz.graded.results[i] !== 'wrong'));
   renderTest();
   scrollTo(0, 0);
   if (quiz.graded.percent >= 80) celebrate();

@@ -855,6 +855,17 @@ test('тест: столько вопросов, сколько просили, 
   assert.equal(buildTest(withEmpty, { count: 50 }).length, 6); // без ответа в направлении — не спрашиваем
 });
 
+test('тест: «смешанно» — в выборе направление случайное, в письменных писать термин', () => {
+  const toRu = buildTest(six, { direction: 'mixed', types: ['choice'], random: () => 0.1 });
+  assert.ok(toRu.every((q) => q.direction === 'en-ru' && /^term\d$/.test(q.prompt) && /^опр\d$/.test(q.answer)));
+  const toEn = buildTest(six, { direction: 'mixed', types: ['truefalse'], random: () => 0.9 });
+  assert.ok(toEn.every((q) => q.direction === 'ru-en' && /^term\d$/.test(q.answer)));
+  const written = buildTest(six, { direction: 'mixed', types: ['written'], random: () => 0.1 });
+  assert.ok(written.every((q) => q.direction === 'ru-en' && /^опр\d$/.test(q.prompt) && /^term\d$/.test(q.answer)));
+  const withEmpty = [...six, { id: 'e', term: 'empty', definition: '' }];
+  assert.equal(buildTest(withEmpty, { direction: 'mixed', count: 50 }).length, 6);
+});
+
 test('тест: выбранные типы вопросов распределяются поровну', () => {
   const qs = buildTest(six, { count: 6, types: ['choice', 'truefalse', 'written'] });
   const n = (t) => qs.filter((q) => q.type === t).length;
