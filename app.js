@@ -1997,8 +1997,15 @@ function renderTestSetup() {
     `<label class="radio"><input type="radio" name="test-dir" value="${value}"${dir === value ? ' checked' : ''}><span>${label}</span></label>`;
   const types = testTypes();
   return '<div class="form test-setup"><h1>Тест</h1>' +
-    `<label class="field"><span>Вопросов (карточек в наборе: ${total})</span>` +
-    `<input type="number" id="test-count" min="1" max="${total}" value="${Math.min(store.get('test-count', 10), total)}"></label>` +
+    // число вопросов: «−» и «+», быстрый выбор; больше, чем карточек, — карточки повторятся
+    '<div class="field"><span>Вопросов</span><div class="count-row">' +
+    `<div class="stepper"><button type="button" data-act="test-step" data-step="-1" aria-label="Меньше">${icon('minus')}</button>` +
+    `<input type="number" id="test-count" min="1" max="${KlavaCore.TEST_MAX}" inputmode="numeric" value="${testCount()}" aria-label="Вопросов">` +
+    `<button type="button" data-act="test-step" data-step="1" aria-label="Больше">${icon('plus')}</button></div>` +
+    '<div class="chips">' + [...new Set([10, 20, 50, total])].filter((n) => n >= 1 && n <= KlavaCore.TEST_MAX).sort((a, b) => a - b)
+      .map((n) => `<button type="button" class="count-chip" data-act="test-preset" data-n="${n}">${n === total ? `Все (${n})` : n}</button>`).join('') +
+    '</div></div>' +
+    `<small class="count-hint">Карточек в наборе: ${total}. Если вопросов больше — карточки повторятся. Не больше ${KlavaCore.TEST_MAX}</small></div>` +
     `<fieldset><legend>Направление</legend>${radio('en-ru', dirLabels(quiz.deckId)['en-ru'])}${radio('ru-en', dirLabels(quiz.deckId)['ru-en'])}` +
     `${radio('mixed', 'Смешанно')}<small class="fieldset-hint">Смешанно: выбор — в обе стороны, писать — термин</small></fieldset>` +
     '<fieldset><legend>Типы вопросов</legend>' + Object.entries(TEST_TYPE_NAMES).map(([t, name]) =>
@@ -2071,7 +2078,7 @@ function renderTestResult() {
 function testStart() {
   const types = [...document.querySelectorAll('[name="test-type"]:checked')].map((x) => x.value);
   if (!types.length) { toast('Выберите хотя бы один тип вопросов', 'alert'); return; }
-  const count = Math.max(1, Number($('test-count').value) || 10);
+  const count = clampCount($('test-count').value);
   store.set('test-count', count);
   store.set('test-types', types);
   store.set('test-dir', document.querySelector('[name="test-dir"]:checked').value);
@@ -2106,7 +2113,16 @@ function gradeTestNow(responses) {
   if (quiz.graded.percent >= 80) celebrate();
 }
 
-function onTestAction(act) {
+// Число вопросов: от 1 до TEST_MAX; пустое или не число — 10
+const clampCount = (v) => Math.min(KlavaCore.TEST_MAX, Math.max(1, Math.round(Number(v)) || 10));
+const testCount = () => clampCount(store.get('test-count', 10));
+
+function onTestAction(act, btn) {
+  if (act === 'test-step' || act === 'test-preset') {
+    const input = $('test-count');
+    input.value = act === 'test-preset' ? btn.dataset.n : clampCount(Number(input.value) + Number(btn.dataset.step));
+    return;
+  }
   if (act === 'test-start') testStart();
   else if (act === 'test-check') testCheck();
   else if (act === 'test-again') makeTest();
@@ -2990,7 +3006,7 @@ function onPageAction(e) {
   } else if (act.startsWith('learn-')) {
     onLearnAction(act, btn);
   } else if (act.startsWith('test-')) {
-    onTestAction(act);
+    onTestAction(act, btn);
   } else if (act.startsWith('term-')) {
     onTermAction(act, btn.closest('.term-row'));
   } else if (act === 'study-filter') {

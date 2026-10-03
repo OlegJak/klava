@@ -565,13 +565,22 @@
   // Вопросы трёх типов: 'choice' — выбор из вариантов, 'truefalse' — верно ли показанный ответ, 'written' — ввод.
   // Типы раздаются по кругу перемешанным карточкам, каждая карточка — один раз
   const TEST_TYPES = ['choice', 'truefalse', 'written'];
+  // Вопросов в тесте может быть больше, чем карточек (карточки повторяются по кругу), но не больше этого
+  const TEST_MAX = 100;
 
   // direction: 'en-ru', 'ru-en' или 'mixed' — в выборе и «верно/неверно» направление случайное для каждого вопроса,
   // а в письменных всегда нужно написать термин. Для смешанного нужны обе стороны карточки
   function buildTest(cards, { count = 10, direction = 'en-ru', types = TEST_TYPES, random = Math.random } = {}) {
     const has = (x) => (x || '').trim();
     const usable = cards.filter((c) => (direction === 'mixed' ? has(c.term) && has(c.definition) : has(sidesOf(direction).want(c))));
-    const picked = shuffled(usable, random).slice(0, count);
+    // по кругу: каждый круг — карточки в новом порядке; одна карточка не встаёт два раза подряд
+    const want = Math.min(Math.max(1, count), TEST_MAX);
+    const picked = [];
+    while (usable.length && picked.length < want) {
+      const lap = shuffled(usable, random);
+      if (lap.length > 1 && lap[0] === picked[picked.length - 1]) lap.push(lap.shift());
+      picked.push(...lap.slice(0, want - picked.length));
+    }
     return picked.map((card, i) => {
       const type = types[i % types.length];
       let dir = direction;
@@ -879,6 +888,6 @@
   }
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
-    flashSession, flashAnswer, flashRetry, flashSnapshot, flashResume, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
+    flashSession, flashAnswer, flashRetry, flashSnapshot, flashResume, TEST_MAX, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
     matchGame, matchPick, matchTime, MATCH_PENALTY_MS, mergeData };
 });

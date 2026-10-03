@@ -848,11 +848,21 @@ test('повторение: копия встроенного модуля по�
 const { buildTest, gradeTest } = KlavaCore;
 const six = words.slice(0, 6);
 
-test('тест: столько вопросов, сколько просили, но не больше карточек', () => {
+test('тест: столько вопросов, сколько просили; карточек меньше — они повторяются по кругу', () => {
   assert.equal(buildTest(six, { count: 4 }).length, 4);
-  assert.equal(buildTest(six, { count: 50 }).length, 6);
+  const many = buildTest(six, { count: 20 });
+  assert.equal(many.length, 20);
+  const times = (id) => many.filter((q) => q.card.id === id).length;
+  for (const c of six) assert.ok(times(c.id) === 3 || times(c.id) === 4); // поровну, по кругу
+  for (let i = 1; i < many.length; i++) assert.notEqual(many[i].card.id, many[i - 1].card.id); // не подряд
   const withEmpty = [...six, { id: 'e', term: 'empty', definition: '' }];
-  assert.equal(buildTest(withEmpty, { count: 50 }).length, 6); // без ответа в направлении — не спрашиваем
+  assert.ok(buildTest(withEmpty, { count: 50 }).every((q) => q.card.id !== 'e')); // без ответа в направлении — не спрашиваем
+  assert.equal(buildTest([], { count: 10 }).length, 0);
+});
+
+test('тест: не больше TEST_MAX вопросов и не меньше одного', () => {
+  assert.equal(buildTest(six, { count: 10000 }).length, KlavaCore.TEST_MAX);
+  assert.equal(buildTest(six, { count: 0 }).length, 1);
 });
 
 test('тест: «смешанно» — в выборе направление случайное, в письменных писать термин', () => {
@@ -863,7 +873,7 @@ test('тест: «смешанно» — в выборе направление 
   const written = buildTest(six, { direction: 'mixed', types: ['written'], random: () => 0.1 });
   assert.ok(written.every((q) => q.direction === 'ru-en' && /^опр\d$/.test(q.prompt) && /^term\d$/.test(q.answer)));
   const withEmpty = [...six, { id: 'e', term: 'empty', definition: '' }];
-  assert.equal(buildTest(withEmpty, { direction: 'mixed', count: 50 }).length, 6);
+  assert.ok(buildTest(withEmpty, { direction: 'mixed', count: 50 }).every((q) => q.card.id !== 'e'));
 });
 
 test('тест: выбранные типы вопросов распределяются поровну', () => {
