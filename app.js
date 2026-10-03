@@ -1287,7 +1287,7 @@ function renderLanding() {
       '<div class="cmp-cards reveal">' +
         cmpCard('bad', 'Тетрадка и зубрёжка', 0, 'x') +
         '<span class="cmp-vs">vs</span>' +
-        cmpCard('good', `<span class="brand-mark">K</span>Klava`, 1, 'check') +
+        cmpCard('good', `<img class="brand-mark" src="img/klava-icon.svg" alt="">Klava`, 1, 'check') +
       '</div>' +
     '</section>' +
 
@@ -1322,7 +1322,7 @@ function renderLanding() {
       '<p>Вход занимает 5 секунд. Никаких карт и подписок.</p>' +
       cta('Войти через Google', 'light') +
     '</section>' +
-    '<footer class="land-footer"><span class="brand-mark">K</span>Klava — запоминайте с удовольствием</footer>' +
+    '<footer class="land-footer"><img class="brand-mark" src="img/klava-icon.svg" alt="">Klava — запоминайте с удовольствием</footer>' +
   '</div>';
 }
 
@@ -1396,7 +1396,7 @@ function renderWelcome() {
   const step = (n, iconName, title, sub) =>
     `<li><span class="step-num">${n}</span><span class="step-icon">${icon(iconName)}</span><b>${title}</b><small>${sub}</small></li>`;
   return '<section class="welcome">' +
-    '<div class="welcome-hero"><span class="brand-mark big">K</span>' +
+    '<div class="welcome-hero"><img class="brand-mark big" src="img/klava-icon.svg" alt="Klava">' +
     '<h1>Учите что угодно так, как удобно вам</h1>' +
     '<p>Соберите свой модуль — слова с переводами или термины с определениями — и запоминайте его карточками, заучиванием, тестами ' +
     'и игрой на скорость. Klava сама напомнит, когда пора повторить.</p></div>' +
