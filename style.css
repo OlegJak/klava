@@ -244,6 +244,22 @@ button { padding: 6px 14px; cursor: pointer; }
 .learn-verdict small { color: var(--muted); font-size: 14px; }
 .learn-almost { color: #c98a12; }
 .learn-next { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+/* «Продолжить» выезжает снизу экрана после ответа */
+.learn-next-bar {
+  position: fixed; z-index: 20; left: 0; right: 0; bottom: 0;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  background: var(--panel); box-shadow: 0 -8px 30px rgb(40 46 62 / .14);
+  border-top: 3px solid var(--ok);
+  animation: next-bar-in .28s cubic-bezier(.2, .8, .2, 1);
+}
+.learn-next-bar.almost { border-top-color: #c98a12; }
+.learn-next-bar.wrong { border-top-color: var(--bad); }
+.learn-next-bar .learn-next { max-width: 720px; margin: 0 auto; }
+.learn-next-bar .primary-btn { padding: 12px 28px; font-size: 16px; }
+@keyframes next-bar-in { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { .learn-next-bar { animation: none; } }
+/* место под выехавшей кнопкой, чтобы она не закрывала низ страницы */
+#page:has(.learn-next-bar) .mode-switch { padding-bottom: 110px; }
 .learn-next kbd { margin-left: 4px; color: inherit; border-color: rgb(255 255 255 / .5); }
 
 /* Режим «Тест» */

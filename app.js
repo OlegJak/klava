@@ -1868,26 +1868,30 @@ function renderLearn() {
       '<button type="button" class="pill-btn" data-act="learn-skip">Не знаю</button></form>';
   } else body = '';
 
+  // После ответа: «Верно / Неверно» не пишем — подсказывают цвета. Только при вводе с ошибкой
+  // показываем правильный ответ. Кнопка «Продолжить» выезжает снизу экрана
   let verdict = '';
+  let next = '';
   if (fb) {
     const right = `<b>${escapeHtml(q.answer)}</b>`;
     const yours = fb.given && fb.result !== 'correct' ? `<small>Ваш ответ: ${escapeHtml(fb.given)}</small>` : '';
-    const head = {
-      correct: '<span class="dict-ok">✓ Верно!</span>',
+    const head = q.stage === 2 ? {
       almost: `<span class="learn-almost">≈ Почти! Правильно: ${right}</span>`,
-      wrong: `<span class="dict-bad">✗ Неверно. Правильно: ${right}</span>`,
-    }[fb.result];
-    verdict = `<div class="learn-feedback ${fb.result}"><div class="learn-verdict">${head}${yours}</div>` +
-      flashSides(q.card).extra +
-      '<div class="learn-next">' +
-      (fb.result === 'wrong' ? '<button class="pill-btn" data-act="learn-override">Я был прав</button>' : '') +
+      wrong: `<span class="dict-bad">Правильно: ${right}</span>`,
+    }[fb.result] : '';
+    const extra = flashSides(q.card).extra;
+    if (head || extra) {
+      verdict = `<div class="learn-feedback ${fb.result}">${head ? `<div class="learn-verdict">${head}${yours}</div>` : ''}${extra}</div>`;
+    }
+    next = `<div class="learn-next-bar ${fb.result}"><div class="learn-next">` +
+      (q.stage === 2 && fb.result === 'wrong' ? '<button class="pill-btn" data-act="learn-override">Я был прав</button>' : '') +
       '<button class="primary-btn" data-act="learn-next">Продолжить <kbd>Enter</kbd></button></div></div>';
   }
 
   $('page-body').innerHTML = `<div class="flash">${bar}<div class="learn-card${fb ? ` fb-${fb.result}` : ''}">` +
     `<div class="learn-head"><small>${what} ${target}</small>${speakBtn}</div>` +
     `<div class="flash-text${q.prompt.length > 40 ? ' long' : ''}">${escapeHtml(q.prompt)}</div>` +
-    `${body}${verdict}</div></div>`;
+    `${body}${verdict}</div></div>${next}`;
   if (q.stage === 2 && !fb) $('learn-input').focus();
 }
 
