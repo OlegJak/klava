@@ -255,7 +255,12 @@ button { padding: 6px 14px; cursor: pointer; }
 }
 .learn-next-bar.almost { background: color-mix(in srgb, #c98a12 12%, var(--panel)); }
 .learn-next-bar.wrong { background: color-mix(in srgb, var(--bad) 10%, var(--panel)); }
-.learn-next-bar .primary-btn { padding: 12px 28px; font-size: 16px; }
+.learn-next-bar .primary-btn { padding: 12px 28px; font-size: 16px; background: var(--ok); }
+.learn-next-bar .primary-btn:hover { background: color-mix(in srgb, var(--ok) 85%, #000); }
+.learn-next-bar.almost .primary-btn { background: #c98a12; }
+.learn-next-bar.almost .primary-btn:hover { background: color-mix(in srgb, #c98a12 85%, #000); }
+.learn-next-bar.wrong .primary-btn { background: var(--bad); }
+.learn-next-bar.wrong .primary-btn:hover { background: color-mix(in srgb, var(--bad) 85%, #000); }
 @keyframes next-bar-in { from { transform: translateY(-70px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .learn-next-bar { animation: none; } }
 .learn-next kbd { margin-left: 4px; color: inherit; border-color: rgb(255 255 255 / .5); }
