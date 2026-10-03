@@ -1997,15 +1997,16 @@ function renderTestSetup() {
     `<label class="radio"><input type="radio" name="test-dir" value="${value}"${dir === value ? ' checked' : ''}><span>${label}</span></label>`;
   const types = testTypes();
   return '<div class="form test-setup"><h1>Тест</h1>' +
-    // число вопросов: «−» и «+», быстрый выбор; больше, чем карточек, — карточки повторятся
-    '<div class="field"><span>Вопросов</span><div class="count-row">' +
+    // число вопросов: «−» и «+», быстрый выбор 10 / 20 / 50 / «Все» (или максимум, если карточек больше);
+    // вопросов больше, чем карточек, — карточки повторятся
+    `<fieldset class="count-set"><legend>Вопросов</legend>` +
     `<div class="stepper"><button type="button" data-act="test-step" data-step="-1" aria-label="Меньше">${icon('minus')}</button>` +
     `<input type="number" id="test-count" min="1" max="${KlavaCore.TEST_MAX}" inputmode="numeric" value="${testCount()}" aria-label="Вопросов">` +
     `<button type="button" data-act="test-step" data-step="1" aria-label="Больше">${icon('plus')}</button></div>` +
-    '<div class="chips">' + [...new Set([10, 20, 50, total])].filter((n) => n >= 1 && n <= KlavaCore.TEST_MAX).sort((a, b) => a - b)
-      .map((n) => `<button type="button" class="count-chip" data-act="test-preset" data-n="${n}">${n === total ? `Все (${n})` : n}</button>`).join('') +
-    '</div></div>' +
-    `<small class="count-hint">Карточек в наборе: ${total}. Если вопросов больше — карточки повторятся. Не больше ${KlavaCore.TEST_MAX}</small></div>` +
+    countPresets(total).map(([n, label]) =>
+      `<button type="button" class="count-chip${n === testCount() ? ' on' : ''}" data-act="test-preset" data-n="${n}">${label}</button>`).join('') +
+    `<small class="fieldset-hint">Карточек в наборе: ${total}. Больше вопросов, чем карточек, — карточки повторятся. Не больше ${KlavaCore.TEST_MAX}</small>` +
+    '</fieldset>' +
     `<fieldset><legend>Направление</legend>${radio('en-ru', dirLabels(quiz.deckId)['en-ru'])}${radio('ru-en', dirLabels(quiz.deckId)['ru-en'])}` +
     `${radio('mixed', 'Смешанно')}<small class="fieldset-hint">Смешанно: выбор — в обе стороны, писать — термин</small></fieldset>` +
     '<fieldset><legend>Типы вопросов</legend>' + Object.entries(TEST_TYPE_NAMES).map(([t, name]) =>
@@ -2116,11 +2117,23 @@ function gradeTestNow(responses) {
 // Число вопросов: от 1 до TEST_MAX; пустое или не число — 10
 const clampCount = (v) => Math.min(KlavaCore.TEST_MAX, Math.max(1, Math.round(Number(v)) || 10));
 const testCount = () => clampCount(store.get('test-count', 10));
+// Быстрый выбор: всегда 10, 20, 50 (больше карточек — повторятся) и последним «Все (N)» или «100 (макс.)»
+function countPresets(total) {
+  const max = KlavaCore.TEST_MAX;
+  const all = Math.min(total, max);
+  return [...[10, 20, 50].filter((n) => n !== all).map((n) => [n, String(n)]),
+    [all, total > max ? `${max} (макс.)` : `Все (${total})`]];
+}
+// подсветить кнопку быстрого выбора, совпадающую с числом
+const syncCountChips = () => document.querySelectorAll('.count-chip').forEach((c) => {
+  c.classList.toggle('on', Number(c.dataset.n) === Number($('test-count').value));
+});
 
 function onTestAction(act, btn) {
   if (act === 'test-step' || act === 'test-preset') {
     const input = $('test-count');
     input.value = act === 'test-preset' ? btn.dataset.n : clampCount(Number(input.value) + Number(btn.dataset.step));
+    syncCountChips();
     return;
   }
   if (act === 'test-start') testStart();
@@ -3389,6 +3402,7 @@ function initPages() {
   });
   initCardDrag();
   initImageInput();
+  $('page-body').addEventListener('input', (e) => { if (e.target.id === 'test-count') syncCountChips(); });
   $('page-body').addEventListener('keydown', (e) => {
     const field = e.key === 'Enter' && !e.isComposing && e.target.closest?.('.edit-main [data-field]');
     if (!field) return;

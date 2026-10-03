@@ -266,31 +266,32 @@ button { padding: 6px 14px; cursor: pointer; }
 .learn-next kbd { margin-left: 4px; color: inherit; border-color: rgb(255 255 255 / .5); }
 
 /* Режим «Тест» */
-/* Число вопросов в тесте: «− число +» и быстрый выбор */
-.count-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+/* Число вопросов в тесте: «− число +» и быстрый выбор — одной высоты, в одну линию */
+.count-set { align-items: center; }
 .stepper {
-  display: inline-flex; align-items: center;
-  background: var(--panel); border: 2px solid var(--line); border-radius: 999px; overflow: hidden;
+  display: inline-flex; align-items: center; height: 44px; margin-right: 6px;
+  background: var(--bg); border: 2px solid var(--line); border-radius: 999px; overflow: hidden;
 }
 .stepper:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .stepper button {
-  width: 46px; height: 46px; display: grid; place-items: center; padding: 0;
+  width: 42px; height: 100%; display: grid; place-items: center; padding: 0;
   border: none; border-radius: 0; background: none; color: var(--accent);
 }
 .stepper button:hover { background: var(--accent-soft); }
-.stepper button .i { width: 20px; height: 20px; }
+.stepper button .i { width: 18px; height: 18px; }
 .test-setup .stepper input {
-  width: 64px; padding: 0; border: none; background: none; box-shadow: none;
-  text-align: center; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums;
+  width: 52px; height: 100%; padding: 0; border: none; background: none; box-shadow: none;
+  text-align: center; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums;
   -moz-appearance: textfield; appearance: textfield;
 }
 .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .count-chip {
-  padding: 8px 14px; border: 2px solid var(--line); border-radius: 999px;
-  font-size: 14px; font-weight: 700; background: var(--panel);
+  height: 44px; padding: 0 16px;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  background: var(--panel); border: 2px solid var(--line); border-radius: 999px;
 }
 .count-chip:hover { border-color: var(--accent); color: var(--accent); }
-.count-hint { font-size: 13px; color: var(--muted); }
+.count-chip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .test { display: flex; flex-direction: column; gap: 14px; max-width: 760px; margin: 16px auto 0; }
 .test-q {
   display: flex; flex-direction: column; gap: 12px;
