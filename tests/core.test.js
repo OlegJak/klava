@@ -477,6 +477,29 @@ test('карточки: «повторить незнакомые» — ново
   assert.deepEqual([again.position, again.total, again.done], [1, 2, false]);
 });
 
+const { flashSnapshot, flashResume } = KlavaCore;
+
+test('карточки: сохранённое занятие продолжается с того же места', () => {
+  let s = flashSession(deck, { shuffle: true, random: () => 0 }); // b c d a
+  s = flashAnswer(flashAnswer(s, true), false);
+  const snap = JSON.parse(JSON.stringify(flashSnapshot(s))); // как после хранилища
+  const r = flashResume(deck, snap);
+  assert.deepEqual(ids(r.cards), ['b', 'c', 'd', 'a']);
+  assert.equal(r.current.id, 'd');
+  assert.deepEqual([r.position, r.total], [3, 4]);
+  assert.deepEqual([ids(r.known), ids(r.unknown)], [['b'], ['c']]);
+});
+
+test('карточки: при продолжении удалённые карточки выпадают, новые встают в конец', () => {
+  let s = flashSession(deck);
+  s = flashAnswer(flashAnswer(s, true), true); // пройдены a, b
+  const now = [deck[1], deck[2], deck[3], { id: 'e', term: 'e', definition: 'E' }]; // a удалили, e добавили
+  const r = flashResume(now, flashSnapshot(s));
+  assert.deepEqual(ids(r.cards), ['b', 'c', 'd', 'e']);
+  assert.equal(r.current.id, 'c');
+  assert.deepEqual(ids(r.known), ['b']);
+});
+
 test('карточки: пустой модуль — занятие сразу закончено', () => {
   const s = flashSession([]);
   assert.equal(s.done, true);

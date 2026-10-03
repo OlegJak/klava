@@ -1613,9 +1613,31 @@ const flashcards = { moduleId: null, session: null, flipped: false };
 const flashDir = () => store.get('cards-dir', 'en-ru');
 const flashOptions = () => ({ shuffle: store.get('cards-shuffle', false) });
 
-function startFlash(moduleId, cards = deckCards(moduleId)) {
+// Место в карточках запоминается по колоде и направлению (в настройках — значит, и в облаке):
+// открыли модуль снова — продолжаем с той же карточки. «Повторить незнакомые» не запоминается
+const flashKey = (deckId) => `${deckId}|${flashDir()}`;
+function saveFlash() {
+  if (!flashcards.saving) return;
+  const all = store.get('flash-progress', {});
+  const s = flashcards.session;
+  if (s.done || !s.index) delete all[flashKey(flashcards.moduleId)];
+  else all[flashKey(flashcards.moduleId)] = KlavaCore.flashSnapshot(s);
+  store.set('flash-progress', all);
+}
+
+// fresh — начать заново, не продолжая сохранённое; retry — занятие из незнакомых карточек
+function startFlash(moduleId, { fresh = false, retry = null } = {}) {
   flashcards.moduleId = moduleId;
-  flashcards.session = KlavaCore.flashSession(cards, flashOptions());
+  flashcards.saving = !retry;
+  const saved = !fresh && !retry && store.get('flash-progress', {})[flashKey(moduleId)];
+  const resumed = saved && KlavaCore.flashResume(deckCards(moduleId), saved);
+  if (resumed && !resumed.done && resumed.index) {
+    flashcards.session = resumed;
+    toast(`Продолжаем с карточки ${resumed.position} из ${resumed.total}`, 'cards');
+  } else {
+    flashcards.session = KlavaCore.flashSession(retry || deckCards(moduleId), flashOptions());
+    saveFlash(); // сбрасывает сохранённое место, если начали заново
+  }
   flashcards.flipped = false;
   renderFlash();
   flashAutoSpeak();
@@ -1641,6 +1663,7 @@ function renderFlash() {
     `<div class="seg">${seg('en-ru', dirLabels(flashcards.moduleId)['en-ru'])}${seg('ru-en', dirLabels(flashcards.moduleId)['ru-en'])}</div>` +
     `<label class="radio"><input type="checkbox" id="flash-shuffle"${flashOptions().shuffle ? ' checked' : ''}><span>Перемешать</span></label>` +
     `<span class="flash-progress">${s.done ? s.total : s.position} / ${s.total}</span>` +
+    (s.index && !s.done ? `<button class="icon-btn voice-btn" data-act="flash-restart" title="Начать сначала">${icon('restart')}</button>` : '') +
     `<button class="icon-btn voice-btn" data-act="voice-settings" title="Голос озвучки">${icon('volume')}</button></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.index / s.total) * 100 : 0}%"></span></div>`;
 
@@ -1703,6 +1726,7 @@ function flashMark(known) {
     flashcards.busy = false;
     core.recordAnswer(flashcards.session.current.id, flashDir(), known);
     flashcards.session = KlavaCore.flashAnswer(flashcards.session, known);
+    saveFlash();
     flashcards.flipped = false;
     renderFlash();
     flashAutoSpeak();
@@ -1762,8 +1786,8 @@ function onFlashAction(act, btn) {
   }
   else if (act === 'flash-yes' || act === 'flash-no') flashMark(act === 'flash-yes');
   else if (act === 'flash-speak' && s.current) flashSpeak();
-  else if (act === 'flash-retry') startFlash(flashcards.moduleId, s.unknown);
-  else if (act === 'flash-restart') startFlash(flashcards.moduleId);
+  else if (act === 'flash-retry') startFlash(flashcards.moduleId, { retry: s.unknown });
+  else if (act === 'flash-restart') startFlash(flashcards.moduleId, { fresh: true });
   else if (act === 'flash-dir') { store.set('cards-dir', btn.dataset.dir); startFlash(flashcards.moduleId); }
 }
 
@@ -2745,7 +2769,7 @@ function initPages() {
     if (e.target.id !== 'flash-shuffle') return;
     store.set('cards-shuffle', e.target.checked);
     e.target.blur();
-    startFlash(flashcards.moduleId);
+    startFlash(flashcards.moduleId, { fresh: true });
   });
   $('page-body').addEventListener('change', onEditorChange);
   $('page-body').addEventListener('change', onImportInput);

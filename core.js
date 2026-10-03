@@ -476,6 +476,24 @@
   // «Повторить незнакомые»: новое занятие из карточек, отмеченных «не знаю»
   const flashRetry = (s, options) => flashSession(s.unknown, options);
 
+  // Занятие карточками для сохранения — только id, чтобы потом продолжить с того же места
+  const flashSnapshot = (s) => ({
+    order: s.cards.map((c) => c.id), index: s.index,
+    known: s.known.map((c) => c.id), unknown: s.unknown.map((c) => c.id),
+  });
+  // Продолжить сохранённое занятие на нынешних карточках колоды: удалённые выпадают, новые встают в конец
+  function flashResume(cards, snap) {
+    const byId = new Map(cards.map((c) => [c.id, c]));
+    const order = snap.order.filter((id) => byId.has(id));
+    const passed = new Set(snap.order.slice(0, snap.index));
+    const inOrder = new Set(order);
+    const pick = (ids) => ids.filter((id) => byId.has(id)).map((id) => byId.get(id));
+    return flashState(
+      [...pick(order), ...cards.filter((c) => !inOrder.has(c.id))],
+      order.filter((id) => passed.has(id)).length,
+      pick(snap.known), pick(snap.unknown));
+  }
+
   // ---------- Проверка ответа ----------
   // Не важны регистр, знаки препинания, апострофы, лишние пробелы и «ё/е»
   // (апостроф выпадает совсем: don't → dont, остальные знаки становятся пробелами)
@@ -841,6 +859,6 @@
   }
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
-    flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
+    flashSession, flashAnswer, flashRetry, flashSnapshot, flashResume, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
     matchGame, matchPick, matchTime, MATCH_PENALTY_MS, mergeData };
 });

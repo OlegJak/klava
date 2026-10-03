@@ -34,6 +34,7 @@
     play: '<path d="M7 5l12 7-12 7z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    restart: '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/>',
     sparkle: '<path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/>',
     translate: '<path d="M3 5h10M8 3v2M5 5c.5 3.5 3 6.5 7 8M11 5c-.5 3.5-3 6.5-7 8"/><path d="M13 21l4-9 4 9M14.4 18h5.2"/>',
     chart: '<path d="M3 20h18M6 20v-6M11 20V8M16 20v-9M21 20V4"/>',
