@@ -599,7 +599,6 @@ body.dragging-files .image-box.drop { background: color-mix(in srgb, var(--accen
   border-radius: 10px;
 }
 .form legend { padding: 0 6px; font-size: 12px; color: var(--muted); }
-.imp-seps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .radio input { accent-color: var(--accent); margin: 0; }
 .sep-input { width: 64px; padding: 4px 8px; font-family: "SF Mono", Menlo, Consolas, monospace; }
@@ -1166,7 +1165,6 @@ button:active:not(:disabled), .tile:active, .mode-btn:active, a.pill-btn:active 
   .term-body { grid-template-columns: 1fr; gap: 4px; flex-basis: calc(100% - 120px); }
   .term-def { padding-left: 0; border-left: none; color: var(--muted); }
   .term-term { padding-right: 0; }
-  .imp-seps { grid-template-columns: 1fr; }
   /* Карточки одной рукой: карточка заполняет экран, кнопки — внизу под большим пальцем */
   .flash { margin-top: 8px; }
   .flash-inner { min-height: calc(100svh - 300px); }
@@ -1533,38 +1531,38 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
 .fieldset-hint { flex-basis: 100%; font-size: 13px; color: var(--muted); }
 .form legend { float: left; width: 100%; margin-bottom: 4px; padding: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
 
-/* Импорт: перенос из Quizlet закладкой «В Klava» */
+/* Импорт: из Quizlet в два шага — «Экспорт» там и «Вставить» здесь */
 .q-head { display: flex; align-items: center; gap: 14px; }
 .q-head > div { display: flex; flex-direction: column; gap: 2px; }
 .q-head b { font-size: 18px; font-weight: 800; }
 .q-head small { color: var(--muted); font-size: 14px; }
 .q-icon { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 14px; color: var(--accent); background: var(--accent-soft); }
 .q-icon .i { width: 22px; height: 22px; }
-.q-steps { display: flex; flex-direction: column; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.q-steps { display: flex; flex-direction: column; gap: 18px; margin: 0; padding: 0; list-style: none; }
 .q-steps li { display: flex; gap: 12px; align-items: flex-start; }
-.q-steps li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; font-weight: 600; }
-.q-steps small { font-weight: 500; color: var(--muted); font-size: 13px; }
+.q-steps li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; font-weight: 600; padding-top: 2px; }
 .q-num {
   flex: none; width: 26px; height: 26px; display: grid; place-items: center;
   border-radius: 50%; font-size: 13px; font-weight: 800; color: #fff; background: var(--accent);
 }
-.bookmarklet {
-  display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px;
-  font-weight: 800; color: #fff; text-decoration: none; cursor: grab;
-  background: linear-gradient(100deg, var(--accent), #9b5cff); border-radius: 999px;
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+/* путь по меню Quizlet: [⋯] › [Экспорт] › [Скопировать текст] */
+.q-path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.q-btn { padding: 5px 12px; border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 8px; font-size: 14px; font-weight: 700; background: var(--bg); }
+.q-sep { color: var(--muted); font-weight: 700; }
+.cta-paste {
+  display: inline-flex; align-items: center; gap: 10px; padding: 14px 26px;
+  font-size: 16px; font-weight: 800; color: #fff; border: none; border-radius: 999px;
+  background: linear-gradient(100deg, var(--accent), #9b5cff);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: transform .15s, box-shadow .15s;
 }
-.bookmarklet:active { cursor: grabbing; }
-.bookmarklet .i { width: 18px; height: 18px; }
-.q-link { display: flex; gap: 8px; width: 100%; }
-.q-link input { flex: 1; min-width: 0; }
-.q-link .pill-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.q-link .pill-btn .i { width: 16px; height: 16px; }
-.q-mobile { display: none; color: var(--muted); font-size: 13px; }
-@media (hover: none) { .q-mobile { display: block; } }
-.or-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-.or-divider::before, .or-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-@media (max-width: 520px) { .q-link { flex-direction: column; } }
+.cta-paste:hover { transform: translateY(-1px); box-shadow: 0 14px 30px color-mix(in srgb, var(--accent) 45%, transparent); }
+.cta-paste .i { width: 20px; height: 20px; }
+/* разделители — свёрнуты: сайт определяет их сам */
+.imp-seps summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--muted); }
+.imp-seps summary:hover { color: var(--accent); }
+.imp-seps[open] { display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 520px) { .cta-paste { width: 100%; justify-content: center; } }
 
 /* Импорт, «Куда»: варианты блоками, поля видны только у выбранного */
 .imp-target { gap: 12px; }

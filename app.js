@@ -2337,48 +2337,49 @@ function renderNewModule(folderId) {
 // #/import/module/<модуль> — дописать в свой модуль
 const ownModules = () => core.modules().filter((m) => !m.builtIn);
 
-// ---------- Перенос из Quizlet по ссылке ----------
-// Quizlet не отдаёт страницы чужим сайтам (проверка «я не робот», браузер не даёт читать чужие страницы),
-// поэтому слова забирает закладка-кнопка «В Klava»: её нажимают на открытой странице модуля Quizlet,
-// она собирает пары «термин — определение» и открывает Klava: #/import/quizlet/<данные>
-function quizletBookmarklet() {
-  const base = location.origin + location.pathname;
-  const code = '(()=>{const r=new Map;' +
-    "for(const t of document.querySelectorAll('.TermText')){let p=t.parentElement;" +
-    "while(p&&p.querySelectorAll('.TermText').length<2)p=p.parentElement;" +
-    "if(p&&!r.has(p))r.set(p,[...p.querySelectorAll('.TermText')].map(x=>x.innerText.trim()))}" +
-    'const c=[...r.values()].filter(v=>v.length===2);' +
-    "if(!c.length){alert('Klava: откройте страницу модуля на Quizlet и нажмите закладку ещё раз');return}" +
-    "const h=document.querySelector('h1');" +
-    "const t=(h?h.innerText:document.title.replace(/\\s*\\|\\s*Quizlet$/,'')).trim();" +
-    'const b=btoa(unescape(encodeURIComponent(JSON.stringify({t,c})))).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");' +
-    `window.open('${base}#/import/quizlet/'+b,'_blank')})()`;
-  return `javascript:${encodeURIComponent(code)}`;
+// ---------- Перенос из Quizlet ----------
+// Quizlet не отдаёт страницы другим сайтам (проверка «я не робот»), поэтому переносим штатным «Экспортом»:
+// в Quizlet «⋯ → Экспорт → Скопировать текст», здесь — кнопка «Вставить из Quizlet» берёт текст из буфера.
+// Разделители определяем сами: Quizlet копирует «термин Tab определение», карточка — строка
+
+// Разделитель термина по тексту: Tab, тире, точка с запятой или запятая — что встречается в большинстве строк
+function detectTermSep(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return 'tab';
+  const share = (re) => lines.filter((l) => re.test(l)).length / lines.length;
+  if (share(/\t/) >= 0.5) return 'tab';
+  if (share(/\s[–—-]\s|[–—]/) >= 0.5) return 'dash';
+  if (share(/;/) >= 0.5) return 'semicolon';
+  if (share(/,/) >= 0.5) return 'comma';
+  return 'tab';
 }
 
-// Данные из закладки: { t: название, c: [[термин, определение], …] } в base64url
-function readQuizletData(b64) {
-  try {
-    const d = JSON.parse(decodeURIComponent(escape(atob(b64.replace(/-/g, '+').replace(/_/g, '/')))));
-    return d && Array.isArray(d.c) ? d : null;
-  } catch {
-    return null;
+// Положить текст в список: разделители — по содержимому, предпросмотр, курсор — в название модуля
+function fillImportText(text) {
+  $('imp-text').value = text.trim();
+  document.querySelector(`[name="imp-term"][value="${detectTermSep(text)}"]`).checked = true;
+  document.querySelector('[name="imp-card"][value="newline"]').checked = true;
+  updateImportPreview();
+  const n = readImport().toAdd.length;
+  if (!n) { toast('В тексте не нашлось карточек — скопируйте в Quizlet «Экспорт» ещё раз', 'alert'); return; }
+  toast(`Вставлено: ${plural(n, 'карточка', 'карточки', 'карточек')} — назовите модуль и нажмите «Импортировать»`, 'download');
+  const title = $('imp-title');
+  if (title && document.querySelector('[name="imp-target"][value="new"]')?.checked && !title.value.trim()) {
+    title.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' });
+    title.focus({ preventScroll: true });
   }
 }
 
-// Подставить слова из Quizlet в форму импорта
-function fillFromQuizlet(d) {
-  const clean = (x) => String(x || '').replace(/\s*[\r\n\t]+\s*/g, ' ').trim();
-  const lines = d.c.map(([term, def]) => `${clean(term)}\t${clean(def)}`).filter((l) => l.trim());
-  $('imp-text').value = lines.join('\n');
-  document.querySelector('[name="imp-term"][value="tab"]').checked = true;
-  document.querySelector('[name="imp-card"][value="newline"]').checked = true;
-  const target = document.querySelector('[name="imp-target"][value="new"]');
-  if (target) target.checked = true;
-  $('imp-title').value = clean(d.t);
-  updateImportPreview();
-  toast(`Из Quizlet: ${plural(lines.length, 'карточка', 'карточки', 'карточек')} — выберите папку и нажмите «Импортировать»`, 'download');
-  $('imp-title').scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' });
+// «Вставить из Quizlet»: читаем буфер обмена; браузер не дал — просим вставить вручную
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text.trim()) { fillImportText(text); return; }
+    toast('Буфер обмена пуст — сначала нажмите в Quizlet «Скопировать текст»', 'alert');
+  } catch {
+    $('imp-text').focus();
+    toast('Браузер не дал прочитать буфер — нажмите Ctrl+V (на телефоне — «Вставить»)', 'alert');
+  }
 }
 
 function renderImport({ folderId, moduleId }) {
@@ -2386,29 +2387,22 @@ function renderImport({ folderId, moduleId }) {
     `<label class="radio"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}><span>${label}</span></label>`;
   const own = ownModules();
   const toExisting = Boolean(moduleId);
+  const path = (...items) => '<span class="q-path">' + items.map((x) => `<span class="q-btn">${x}</span>`).join(`<span class="q-sep">›</span>`) + '</span>';
   // Варианты «Куда» — блоками: поля варианта видны, только когда он выбран (см. .imp-option в style.css)
-  const step = (n, body) => `<li><span class="q-num">${n}</span><div>${body}</div></li>`;
   return '<div id="import-form" class="form">' +
     '<h1>Импорт карточек</h1>' +
-    // из Quizlet — закладкой «В Klava»
     '<section class="form-card quizlet-card">' +
-    `<div class="q-head"><span class="q-icon">${icon('download')}</span><div><b>Перенос из Quizlet</b>` +
-    '<small>Один раз добавьте кнопку в закладки — дальше любой модуль переносится в два нажатия</small></div></div>' +
+    `<div class="q-head"><span class="q-icon">${icon('download')}</span><div><b>Из Quizlet — в два шага</b>` +
+    '<small>Слова и переводы перенесутся целиком</small></div></div>' +
     '<ol class="q-steps">' +
-    step(1, 'Перетащите эту кнопку на панель закладок браузера' +
-      `<a class="bookmarklet" href="${escapeAttr(quizletBookmarklet())}" data-act="q-bookmarklet" draggable="true">${icon('bookmark')}В Klava</a>` +
-      '<small>Панель закладок не видна? Нажмите Ctrl+Shift+B (на Mac — Cmd+Shift+B)</small>') +
-    step(2, 'Откройте модуль на Quizlet' +
-      '<span class="q-link"><input id="q-url" type="url" placeholder="Ссылка на модуль: https://quizlet.com/…" autocomplete="off">' +
-      `<button type="button" class="pill-btn" data-act="q-open">Открыть${icon('arrow')}</button></span>`) +
-    step(3, 'На странице модуля нажмите закладку «В Klava» — слова и название появятся здесь, останется выбрать папку') +
-    '</ol>' +
-    '<small class="q-mobile">На телефоне закладку добавить сложно — сделайте это на компьютере или вставьте список ниже</small>' +
-    '</section>' +
-    '<div class="or-divider"><span>или вставьте список</span></div>' +
+    `<li><span class="q-num">1</span><div>В Quizlet откройте модуль и нажмите${path('⋯', 'Экспорт', 'Скопировать текст')}</div></li>` +
+    '<li><span class="q-num">2</span><div>Вернитесь сюда и нажмите' +
+    `<button type="button" class="cta-paste" data-act="imp-paste">${icon('copy')}Вставить из Quizlet</button></div></li>` +
+    '</ol></section>' +
     '<section class="form-card">' +
-    '<label class="field"><span>Список</span><textarea id="imp-text" rows="7" ' +
-    'placeholder="Каждая карточка на своей строке, термин и определение через Tab — так копируют Quizlet («Экспорт») и таблицы"></textarea></label>' +
+    '<label class="field"><span>Список</span><textarea id="imp-text" rows="6" ' +
+    'placeholder="Сюда вставятся слова. Можно вставить и любой свой список: каждая карточка с новой строки, термин и перевод через Tab или тире"></textarea></label>' +
+    '<details class="imp-seps"><summary>Разделители — определяются сами</summary>' +
     '<div class="choice-group"><span class="group-title">Между термином и определением</span><div class="chips">' +
     radio('imp-term', 'tab', 'Tab', true) + radio('imp-term', 'comma', 'Запятая') + radio('imp-term', 'semicolon', 'Точка с запятой') +
     radio('imp-term', 'dash', 'Тире') + radio('imp-term', 'custom', 'Свой') + '<input id="imp-term-custom" class="sep-input" maxlength="10" aria-label="Свой разделитель">' +
@@ -2416,7 +2410,7 @@ function renderImport({ folderId, moduleId }) {
     '<div class="choice-group"><span class="group-title">Между карточками</span><div class="chips">' +
     radio('imp-card', 'newline', 'Новая строка', true) + radio('imp-card', 'semicolon', 'Точка с запятой') +
     radio('imp-card', 'custom', 'Свой') + '<input id="imp-card-custom" class="sep-input" maxlength="10" aria-label="Свой разделитель">' +
-    '</div></div></section>' +
+    '</div></div></details></section>' +
     '<section class="form-card imp-target"><span class="group-title">Куда</span>' +
     `<div class="imp-option">${radio('imp-target', 'new', 'Новый модуль', !toExisting)}<div class="imp-fields">` +
     '<label class="field"><span>Название</span><input id="imp-title" placeholder="Например, «Слова из сериала»"></label>' +
@@ -2641,7 +2635,6 @@ function parseRoute() {
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
   if (screen === 'import') {
-    if (id === 'quizlet') return { screen, quizlet: mode || '' };
     return {
       screen,
       folderId: id === 'folder' && moduleFolders().some((f) => f.id === mode) ? mode : null,
@@ -2717,13 +2710,7 @@ function route() {
   } else if (r.screen === 'import') {
     renderCrumbs([[null, 'Импорт']]);
     $('page-body').innerHTML = renderImport(r);
-    if (r.quizlet !== undefined) {
-      // данные пришли из закладки: подставляем и убираем их из адреса
-      history.replaceState(null, '', '#/import');
-      const data = readQuizletData(r.quizlet);
-      if (data) fillFromQuizlet(data);
-      else toast('Не удалось прочитать слова из Quizlet — попробуйте ещё раз', 'alert');
-    } else $('imp-text').focus();
+    $('imp-text').focus();
   } else if (r.screen === 'new') {
     renderCrumbs([[null, 'Новый модуль']]);
     $('page-body').innerHTML = renderNewModule(r.id);
@@ -3161,13 +3148,8 @@ function onPageAction(e) {
   const r = parseRoute();
   if (act === 'voice-settings') {
     openVoiceDialog();
-  } else if (act === 'q-bookmarklet') {
-    e.preventDefault(); // здесь кнопка не работает — её место на панели закладок
-    toast('Перетащите кнопку «В Klava» на панель закладок, а нажимайте её на странице модуля Quizlet', 'bookmark');
-  } else if (act === 'q-open') {
-    const url = $('q-url').value.trim();
-    if (!/^https?:\/\/([a-z0-9-]+\.)*quizlet\.com\//i.test(url)) { toast('Вставьте ссылку на модуль Quizlet: https://quizlet.com/…', 'alert'); return; }
-    window.open(url, '_blank', 'noopener');
+  } else if (act === 'imp-paste') {
+    pasteFromClipboard();
   } else if (act.startsWith('flash-')) {
     onFlashAction(act, btn);
   } else if (act.startsWith('learn-')) {
@@ -3589,6 +3571,13 @@ function initPages() {
     $('page-body').addEventListener(type, (e) => { if (e.target.closest?.('[data-module]')) markDirty(); });
   }
   $('page-body').addEventListener('change', onImportInput);
+  $('page-body').addEventListener('paste', (e) => {
+    if (e.target.id !== 'imp-text' || e.target.value.trim()) return;
+    const text = e.clipboardData?.getData('text') || '';
+    if (!text.trim()) return;
+    e.preventDefault();
+    fillImportText(text);
+  });
   $('page-body').addEventListener('input', onImportInput);
   $('page-body').addEventListener('submit', onNewModule);
 }
