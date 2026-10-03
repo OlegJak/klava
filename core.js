@@ -253,8 +253,26 @@
         const day = today();
         all[cardId] = { ...all[cardId], [direction]: nextProgress(all[cardId]?.[direction], ok, day) };
         storage.set('progress', all);
+        // счётчик ответов по дням — для серии и «сегодня»; хранится не больше года
+        const act = storage.get('activity', {});
+        act[day] = (act[day] || 0) + 1;
+        for (const d of Object.keys(act)) if (Number(d) < day - 400) delete act[d];
+        storage.set('activity', act);
       },
       cardProgress: (cardId) => loadProgress()[cardId] || {},
+
+      // Статистика для главной: today — ответов сегодня, streak — дней подряд с ответами
+      // (если сегодня ещё не занимались, серия считается до вчера), learned — выученных слов
+      activity() {
+        const act = storage.get('activity', {});
+        const day = today();
+        let d = act[day] ? day : day - 1;
+        let streak = 0;
+        while (act[d]) { streak++; d--; }
+        const learned = Object.values(loadProgress())
+          .filter((p) => ['en-ru', 'ru-en'].every((dir) => (p[dir]?.box || 0) >= LEARNED_BOX)).length;
+        return { today: act[day] || 0, streak, learned };
+      },
       // Ждёт повторения: срок хотя бы одного направления наступил
       isDue: (cardId) => isDueIn(loadProgress(), cardId, today()),
       // total — карточек, seen — встречено, learned — выучено (оба направления в коробке 3+), due — ждут повторения

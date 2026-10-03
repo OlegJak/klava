@@ -643,6 +643,32 @@ test('«Сегодня»: скрытые модули в очередь не п�
   assert.equal(core.dueCount('words'), 0);
 });
 
+test('статистика: ответы за сегодня и серия дней подряд', () => {
+  const { c, core } = timed();
+  assert.deepEqual(core.activity(), { today: 0, streak: 0, learned: 0 });
+  core.recordAnswer(card(core, 0), 'en-ru', true);
+  core.recordAnswer(card(core, 1), 'en-ru', false);
+  assert.deepEqual(core.activity(), { today: 2, streak: 1, learned: 0 });
+  c.day = 2;
+  // сегодня ещё не занимались — серия со вчера не прерывается
+  assert.deepEqual(core.activity(), { today: 0, streak: 1, learned: 0 });
+  core.recordAnswer(card(core, 0), 'en-ru', true);
+  c.day = 3;
+  core.recordAnswer(card(core, 0), 'ru-en', true);
+  assert.equal(core.activity().streak, 3);
+  c.day = 5; // пропустили день
+  assert.equal(core.activity().streak, 0);
+  core.recordAnswer(card(core, 0), 'ru-en', true);
+  assert.equal(core.activity().streak, 1);
+});
+
+test('статистика: выученные слова по всем модулям', () => {
+  const { c, core } = timed();
+  const id = card(core);
+  for (const d of [1, 2, 5]) { c.day = d; core.recordAnswer(id, 'en-ru', true); core.recordAnswer(id, 'ru-en', true); }
+  assert.equal(core.activity().learned, 1);
+});
+
 test('повторение: прогресс сохраняется в хранилище', () => {
   const storage = memoryStorage();
   const c = clock(1);

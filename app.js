@@ -587,7 +587,7 @@ function finish() {
   const speed = speedOf(state.lessonChars, state.lessonMs); // средняя по строкам урока
   const best = store.get('best', 0);
   const record = speed > best;
-  if (record) store.set('best', speed);
+  if (record) { store.set('best', speed); celebrate(); }
   $('result-text').innerHTML =
     `Скорость: <b>${speed}</b> зн/мин (≈${Math.round(speed / 5)} слов/мин)<br>` +
     `Точность: <b>${accuracy()}%</b>, ошибок: <b>${state.errors}</b>` +
@@ -702,7 +702,8 @@ async function addToStudy(en, from = -1) {
   const [definition, ex] = await Promise.all([translate(en), known ? currentSentence(chunk, from) : null]);
   // в словарных уроках строка — само слово, примером она не служит
   const example = ex && ex.en !== en ? ex : null;
-  core.addMyWord({ term: en, definition: definition || '', example: example?.en, exampleTranslation: example?.ru || '' });
+  const added = core.addMyWord({ term: en, definition: definition || '', example: example?.en, exampleTranslation: example?.ru || '' });
+  toast(added ? `«${en}» — в «Моих словах»` : `«${en}» уже в «Моих словах»`, '⭐');
 }
 
 function saveLookup(lk) {
@@ -964,13 +965,21 @@ const folderLessons = (folderId) => [...core.modules(folderId).map((m) => m.id),
 const lessonHref = (id) => (id === 'custom' ? '#/custom' : `#/module/${id}`);
 const lessonCards = (id) => core.module(id).cards;
 
-const tile = (href, icon, title, sub) =>
+// extra — что-то под подписью, например полоска прогресса
+const tile = (href, icon, title, sub, extra = '') =>
   `<a class="tile" href="${href}"><span class="tile-icon">${icon}</span>` +
-  `<span class="tile-text"><b>${escapeHtml(title)}</b><small>${sub}</small></span></a>`;
+  `<span class="tile-text"><b>${escapeHtml(title)}</b><small>${sub}</small>${extra}</span></a>`;
 const dueNote = (n) => (n ? ` · <span class="due-count">ждут: ${n}</span>` : '');
+// Полоска «выучено X%»: показываем, когда модуль уже начат
+const progressBar = (s) => (s.seen && s.total
+  ? `<span class="progress" title="Выучено ${Math.round((s.learned / s.total) * 100)}%">` +
+    `<span style="width:${Math.max(3, (s.learned / s.total) * 100)}%"></span></span>`
+  : '');
 const lessonTile = (id) => {
   const l = lessonInfo(id);
-  return tile(lessonHref(id), l.icon, l.title, lessonCount(id) + (SPECIAL[id] ? '' : dueNote(core.moduleStats(id).due)));
+  if (SPECIAL[id]) return tile(lessonHref(id), l.icon, l.title, lessonCount(id));
+  const s = core.moduleStats(id);
+  return tile(lessonHref(id), l.icon, l.title, lessonCount(id) + dueNote(s.due), progressBar(s));
 };
 const folderTile = (f) => {
   const ids = folderLessons(f.id);
@@ -983,6 +992,63 @@ const tilesSection = (title, tiles, actions = '') =>
   `<div class="tiles">${tiles.join('')}</div></section>`;
 const actionBtn = (act, label, cls = '') => `<button class="pill-btn ${cls}" data-act="${act}">${label}</button>`;
 const actionLink = (href, label) => `<a class="pill-btn" href="${href}">${label}</a>`;
+
+// ---------- Отклик: уведомления и конфетти ----------
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Короткое уведомление внизу экрана
+function toast(text, icon = '✓') {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span>${icon}</span>${escapeHtml(text)}`;
+  $('toasts').append(el);
+  setTimeout(() => el.classList.add('out'), 2400);
+  setTimeout(() => el.remove(), 2800);
+}
+
+// Конфетти за хороший результат: ~120 бумажек падают и кружатся пару секунд
+function celebrate() {
+  if (reducedMotion()) return;
+  const canvas = $('confetti');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = innerWidth;
+  const H = canvas.height = innerHeight;
+  canvas.hidden = false;
+  const colors = ['#4255ff', '#3ccfcf', '#ffcd1f', '#ff7eb6', '#18ae79'];
+  const bits = Array.from({ length: 120 }, () => ({
+    x: W / 2 + (Math.random() - .5) * W * .3, y: H * .35,
+    vx: (Math.random() - .5) * 14, vy: -Math.random() * 12 - 4,
+    size: 6 + Math.random() * 6, rot: Math.random() * 6, vr: (Math.random() - .5) * .3,
+    color: colors[Math.floor(Math.random() * colors.length)],
+  }));
+  const start = performance.now();
+  (function frame(t) {
+    ctx.clearRect(0, 0, W, H);
+    for (const b of bits) {
+      b.vy += .35; b.vx *= .99; b.x += b.vx; b.y += b.vy; b.rot += b.vr;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.rot);
+      ctx.fillStyle = b.color;
+      ctx.fillRect(-b.size / 2, -b.size / 4, b.size, b.size / 2);
+      ctx.restore();
+    }
+    if (t - start < 2600) requestAnimationFrame(frame);
+    else { ctx.clearRect(0, 0, W, H); canvas.hidden = true; }
+  })(start);
+}
+
+// Статистика вверху главной: серия дней, ответы сегодня, выученные слова
+function renderHomeStats() {
+  const a = core.activity();
+  const stat = (icon, value, label, cls = '') =>
+    `<div class="stat ${cls}"><span class="stat-icon">${icon}</span><span class="stat-text"><b>${value}</b><small>${label}</small></span></div>`;
+  return '<section class="stats-row">' +
+    stat('🔥', a.streak, plural(a.streak, 'день подряд', 'дня подряд', 'дней подряд').replace(/^\d+ /, ''), a.streak ? 'hot' : '') +
+    stat('✍️', a.today, `${plural(a.today, 'ответ', 'ответа', 'ответов').replace(/^\d+ /, '')} сегодня`) +
+    stat('🏆', a.learned, plural(a.learned, 'слово выучено', 'слова выучено', 'слов выучено').replace(/^\d+ /, '')) +
+    '</section>';
+}
 
 // Плашка «Повторить сегодня» вверху главной
 function todayBanner() {
@@ -1018,7 +1084,7 @@ function renderToday() {
 
 function renderHome() {
   const recent = core.recent().filter((id) => lessonInfo(id) && !core.isHidden(id));
-  return todayBanner() + (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
+  return renderHomeStats() + todayBanner() + (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
     tilesSection('Папки', allFolders().map(folderTile),
       `<div class="page-actions">${actionLink('#/new', '+ Модуль')}${actionBtn('new-folder', '+ Папка')}${actionLink('#/import', 'Импорт')}</div>`);
 }
@@ -1072,7 +1138,7 @@ function renderModule(id) {
     return cards.length ? `<a class="mode-btn" data-mode="${path}" href="#/module/${id}/${path}">${inner}</a>` : `<span class="mode-btn disabled" data-mode="${path}">${inner}</span>`;
   };
   return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
-    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}${statsLine}</small></div>${actions}</section>${hiddenNote}` +
+    `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}${statsLine}</small>${progressBar(stats)}</div>${actions}</section>${hiddenNote}` +
     '<div class="modes">' +
     mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
     mode('learn', '🎯', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
@@ -1137,7 +1203,10 @@ function renderFlash() {
   $('page-body').innerHTML = `<div class="flash">${bar}` +
     `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
     '<div class="flash-inner">' +
-    `<div class="face front"><span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType() ? 'Нажмите, чтобы перевернуть · Пробел' : 'Коснитесь, чтобы перевернуть'}</small></div>` +
+    '<span class="swipe-stamp yes">Знаю</span><span class="swipe-stamp no">Не знаю</span>' +
+    `<div class="face front"><span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
+      ? 'Нажмите, чтобы перевернуть · Пробел · ← → — ответить'
+      : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
     `<div class="face back"><span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
     '</div></div>' +
     '<div class="flash-actions">' +
@@ -1161,17 +1230,71 @@ function flashFlip() {
   if (flashcards.flipped) flashAutoSpeak();
 }
 
+// Ответ «знаю / не знаю»: карточка улетает вправо или влево, потом появляется следующая
 function flashMark(known) {
-  core.recordAnswer(flashcards.session.current.id, flashDir(), known);
-  flashcards.session = KlavaCore.flashAnswer(flashcards.session, known);
-  flashcards.flipped = false;
-  renderFlash();
-  flashAutoSpeak();
+  if (flashcards.busy) return;
+  const el = document.querySelector('.flash-card');
+  const next = () => {
+    flashcards.busy = false;
+    core.recordAnswer(flashcards.session.current.id, flashDir(), known);
+    flashcards.session = KlavaCore.flashAnswer(flashcards.session, known);
+    flashcards.flipped = false;
+    renderFlash();
+    flashAutoSpeak();
+    const s = flashcards.session;
+    if (s.done && s.total && !s.unknown.length) celebrate();
+  };
+  if (!el || reducedMotion()) { next(); return; }
+  flashcards.busy = true;
+  el.style.transition = 'transform .25s ease-in, opacity .25s ease-in';
+  el.style.transform = `translateX(${known ? 120 : -120}%) rotate(${known ? 14 : -14}deg)`;
+  el.style.opacity = '0';
+  setTimeout(next, 230);
+}
+
+// Свайп карточки пальцем или мышью: вправо — «знаю», влево — «не знаю».
+// Пока тянешь, карточка наклоняется и показывает метку; короткое касание — переворот
+const swipe = { x: 0, dx: 0, active: false, moved: false };
+function initFlashSwipe() {
+  const body = $('page-body');
+  body.addEventListener('pointerdown', (e) => {
+    const card = e.target.closest('.flash-card');
+    if (!card || flashcards.busy) return;
+    Object.assign(swipe, { x: e.clientX, dx: 0, active: true, moved: false });
+    card.setPointerCapture(e.pointerId);
+  });
+  body.addEventListener('pointermove', (e) => {
+    if (!swipe.active) return;
+    const card = document.querySelector('.flash-card');
+    swipe.dx = e.clientX - swipe.x;
+    if (Math.abs(swipe.dx) > 8) swipe.moved = true;
+    if (!card || !swipe.moved) return;
+    card.style.transition = 'none';
+    card.style.transform = `translateX(${swipe.dx}px) rotate(${swipe.dx / 25}deg)`;
+    card.classList.toggle('swipe-yes', swipe.dx > 60);
+    card.classList.toggle('swipe-no', swipe.dx < -60);
+  });
+  const end = () => {
+    if (!swipe.active) return;
+    swipe.active = false;
+    const card = document.querySelector('.flash-card');
+    if (Math.abs(swipe.dx) > 100) { flashMark(swipe.dx > 0); return; }
+    if (card) {
+      card.style.transition = 'transform .2s';
+      card.style.transform = '';
+      card.classList.remove('swipe-yes', 'swipe-no');
+    }
+  };
+  body.addEventListener('pointerup', end);
+  body.addEventListener('pointercancel', end);
 }
 
 function onFlashAction(act, btn) {
   const s = flashcards.session;
-  if (act === 'flash-flip') flashFlip();
+  if (act === 'flash-flip') {
+    if (swipe.moved) { swipe.moved = false; return; } // это был свайп, а не нажатие
+    flashFlip();
+  }
   else if (act === 'flash-yes' || act === 'flash-no') flashMark(act === 'flash-yes');
   else if (act === 'flash-speak' && s.current) speakText(s.current.term);
   else if (act === 'flash-retry') startFlash(flashcards.moduleId, s.unknown);
@@ -1261,7 +1384,7 @@ function renderLearn() {
       '<button class="primary-btn" data-act="learn-next">Продолжить <kbd>Enter</kbd></button></div></div>';
   }
 
-  $('page-body').innerHTML = `<div class="flash">${bar}<div class="learn-card">` +
+  $('page-body').innerHTML = `<div class="flash">${bar}<div class="learn-card${fb ? ` fb-${fb.result}` : ''}">` +
     `<div class="learn-head"><small>${what} ${target}</small>${speakBtn}</div>` +
     `<div class="flash-text${q.prompt.length > 40 ? ' long' : ''}">${escapeHtml(q.prompt)}</div>` +
     `${body}${verdict}</div></div>`;
@@ -1281,6 +1404,7 @@ function learnContinue(ok = learn.feedback.result !== 'wrong') {
   learn.feedback = null;
   renderLearn();
   learnAutoSpeak();
+  if (learn.state.done && learn.state.total) celebrate();
 }
 
 function onLearnAction(act, btn) {
@@ -1440,6 +1564,7 @@ function testCheck() {
   quiz.questions.forEach((q, i) => core.recordAnswer(q.card.id, quiz.settings.direction, quiz.graded.results[i] !== 'wrong'));
   renderTest();
   scrollTo(0, 0);
+  if (quiz.graded.percent >= 80) celebrate();
 }
 
 function onTestAction(act) {
@@ -1531,6 +1656,7 @@ function matchTap(tileId) {
     match.finished = { elapsed, total, mistakes: match.game.mistakes, record };
   }
   renderMatch();
+  if (match.finished?.record) celebrate();
 }
 
 function onMatchAction(act, btn) {
@@ -1661,6 +1787,7 @@ async function doImport() {
     await Promise.all(empty.map((c) => fillTranslation(moduleId, c.id, c.term)));
   }
   location.hash = `#/module/${moduleId}`;
+  toast(`Импортировано: ${plural(added.length, 'карточка', 'карточки', 'карточек')}`, '📥');
 }
 
 // Строка карточки в редакторе. Без карточки — пустая строка внизу для новой
@@ -1913,7 +2040,7 @@ function onPageAction(e) {
     onMatchAction(act, btn);
   } else if (act === 'new-folder') {
     const name = prompt('Название новой папки');
-    if (name && name.trim()) location.hash = `#/folder/${core.createFolder(name).id}`;
+    if (name && name.trim()) { location.hash = `#/folder/${core.createFolder(name).id}`; toast('Папка создана', '🗂️'); }
   } else if (act === 'rename-folder') {
     const name = prompt('Новое название папки', folderOf(r.id).title);
     if (name && name.trim()) { core.renameFolder(r.id, name); route(); }
@@ -1922,19 +2049,24 @@ function onPageAction(e) {
     if (n && !confirm(`Удалить папку «${folderOf(r.id).title}» и ${plural(n, 'модуль', 'модуля', 'модулей')} в ней?`)) return;
     core.deleteFolder(r.id);
     location.hash = '#/';
+    toast('Папка удалена', '🗑️');
   } else if (act === 'delete-module') {
     const l = lessonInfo(r.id);
     if (!confirm(`Удалить модуль «${l.title}» со всеми карточками?`)) return;
     core.deleteModule(r.id);
     location.hash = `#/folder/${l.group}`;
+    toast('Модуль удалён', '🗑️');
   } else if (act === 'copy-module') {
     location.hash = `#/module/${core.copyModule(r.id).id}/edit`;
+    toast('Копия создана — можно править', '📄');
   } else if (act === 'hide-module') {
     core.hideModule(r.id);
     location.hash = `#/folder/${lessonInfo(r.id).group}`;
+    toast('Модуль скрыт — он внизу папки', '🙈');
   } else if (act === 'show-module') {
     core.showModule(r.id);
     route();
+    toast('Модуль снова в папке', '👀');
   } else if (act === 'import-go') {
     doImport();
   } else if (act.startsWith('card-')) {
@@ -1952,6 +2084,7 @@ function onNewModule(e) {
 }
 
 function initPages() {
+  initFlashSwipe();
   $('page-body').addEventListener('click', onPageAction);
   document.addEventListener('keydown', onFlashKey);
   document.addEventListener('keydown', onLearnKey);
@@ -2088,7 +2221,10 @@ function toggleKeyboard(show) {
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  for (const btn of document.querySelectorAll('.theme-btn')) btn.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  for (const btn of document.querySelectorAll('.theme-btn')) {
+    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  }
 }
 
 // ---------- Вход через Google и облако (Supabase) ----------
