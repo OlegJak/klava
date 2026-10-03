@@ -1610,6 +1610,21 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
 /* в тренажёре набора — на всю ширину, как настройки над ним */
 #trainer-modes { max-width: none; margin-top: 28px; padding: 0; }
 
+/* Подсказка по клавишам под карточками */
+.kbd-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 28px; margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.kbd-legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.key-cap {
+  min-width: 34px; height: 30px; padding: 0 8px;
+  display: inline-grid; place-items: center;
+  font: 700 12px "Manrope", sans-serif; color: var(--text);
+  background: var(--panel); border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 8px;
+}
+.key-cap.wide { min-width: 84px; }
+.key-cap .i { width: 16px; height: 16px; }
+.key-cap .i.flip { transform: scaleX(-1); }
+.kbd-legend .no .key-cap { color: var(--bad); }
+.kbd-legend .yes .key-cap { color: var(--ok); }
+
 /* «Перемешать» — значок-переключатель: включён — подсвечен */
 .icon-toggle {
   position: relative; display: grid; place-items: center;

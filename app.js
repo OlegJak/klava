@@ -1696,15 +1696,21 @@ function renderFlash() {
     '<div class="flash-inner">' +
     '<span class="swipe-stamp yes">Know</span><span class="swipe-stamp no">Don’t know</span>' +
     `<div class="face front">${cardImage(s.current)}<span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
-      ? 'Нажмите, чтобы перевернуть · Пробел · ← → — ответить'
+      ? 'Нажмите, чтобы перевернуть'
       : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
     `<div class="face back">${cardImage(s.current)}<span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
     '</div></div>' +
     '<div class="flash-actions">' +
-    `<button class="flash-btn no" data-act="flash-no">${icon('x')} Don’t know <kbd>←</kbd></button>` +
+    `<button class="flash-btn no" data-act="flash-no">${icon('x')} Don’t know</button>` +
     `<button class="flash-btn speak" data-act="flash-speak" title="Произнести">${icon('volume')}</button>` +
-    `<button class="flash-btn yes" data-act="flash-yes">${icon('check')} Know <kbd>→</kbd></button>` +
-    '</div></div>';
+    `<button class="flash-btn yes" data-act="flash-yes">${icon('check')} Know</button>` +
+    '</div>' +
+    // клавиши — только там, где есть клавиатура
+    (canType() ? '<div class="kbd-legend">' +
+      `<span><kbd class="key-cap wide">Пробел</kbd>перевернуть</span>` +
+      `<span class="no"><kbd class="key-cap">${icon('arrow', 'flip')}</kbd>не знаю</span>` +
+      `<span class="yes"><kbd class="key-cap">${icon('arrow')}</kbd>знаю</span></div>` : '') +
+    '</div>';
 }
 
 // Сторона с термином звучит сама, когда появляется, — если в настройках включена озвучка
