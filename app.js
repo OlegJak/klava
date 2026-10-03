@@ -2811,52 +2811,58 @@ const voicesFor = (lang) => speechSynthesis.getVoices()
 const voiceKey = (lang) => (lang === 'en' ? 'voice' : `voice-${lang}`);
 const voiceName = (v) => v.name.replace(/^(Microsoft|Google|Apple)\s+/, '').replace(/\s*[-–]\s*(English|Russian|Estonian).*$/i, '');
 
-function currentVoice() {
-  return voiceFor('en');
+// Онлайн-голос Google: живее встроенных голосов iPhone, и есть эстонский. Выбран по умолчанию.
+// Сервер отказывает запросам с адресом чужой страницы — поэтому в index.html стоит meta referrer no-referrer.
+// Нет связи или сервер не ответил — читаем голосом браузера
+const ONLINE_VOICE = 'online';
+const ttsAudio = new Audio();
+const onlineUrl = (text, lang) =>
+  `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=${lang}&q=${encodeURIComponent(text.slice(0, 200))}`;
+
+// Голос языка: 'online' или голос браузера, выбранный в окне «Озвучка» (английский — ещё и в настройках набора)
+function voiceChoice(lang) {
+  const saved = store.get(voiceKey(lang), ONLINE_VOICE);
+  if (saved === ONLINE_VOICE) return ONLINE_VOICE;
+  return voicesFor(lang).find((v) => v.name === saved) || ONLINE_VOICE;
+}
+// Голос браузера для языка: выбранный, иначе лучший
+function systemVoice(lang) {
+  const choice = voiceChoice(lang);
+  return choice === ONLINE_VOICE ? voicesFor(lang)[0] || null : choice;
 }
 
+// Список голосов в настройках набора: онлайн-голос и английские голоса браузера
 function loadVoices() {
   voices = voicesFor('en');
   const select = $('voice');
-  const cur = currentVoice();
-  select.innerHTML = voices.length
-    ? voices.map((v) => {
-      const name = v.name.replace(/^(Microsoft|Google)\s+/, '').replace(/\s*-\s*English.*$/, '');
-      return `<option value="${escapeHtml(v.name)}">${escapeHtml(name)} · ${v.lang.replace('_', '-')}</option>`;
-    }).join('')
-    : '<option>Голоса не найдены</option>';
-  if (cur) select.value = cur.name;
-}
-
-// Голос языка: выбранный человеком (окно «Озвучка» или настройки набора), иначе — лучший из голосов браузера
-function voiceFor(lang) {
-  const list = voicesFor(lang);
-  return list.find((v) => v.name === store.get(voiceKey(lang), '')) || list[0] || null;
+  select.innerHTML = '<option value="online">Google — онлайн</option>' + voices.map((v) =>
+    `<option value="${escapeHtml(v.name)}">${escapeHtml(voiceName(v))} · ${v.lang.replace('_', '-')}</option>`).join('');
+  const choice = voiceChoice('en');
+  select.value = choice === ONLINE_VOICE ? ONLINE_VOICE : choice.name;
 }
 
 // Окно «Озвучка»: голос для каждого языка, кнопка прослушать и скорость
 const VOICE_SAMPLES = { en: 'Hello! This is how I sound.', ru: 'Привет! Вот так я звучу.', et: 'Tere! Nii ma kõlan.' };
 function openVoiceDialog() {
-  if (!('speechSynthesis' in window)) { toast('Этот браузер не умеет озвучивать текст', 'volume'); return; }
   const d = document.createElement('dialog');
   d.className = 'dialog';
   const row = (lang) => {
-    const list = voicesFor(lang);
-    const cur = voiceFor(lang);
-    return `<div class="voice-row"><span class="voice-lang">${LANGS[lang].name}</span>` + (list.length
-      ? `<select data-voice-lang="${lang}">${list.map((v) =>
-        `<option value="${escapeAttr(v.name)}"${v === cur ? ' selected' : ''}>${escapeHtml(voiceName(v))}</option>`).join('')}</select>` +
-        `<button type="button" class="icon-btn voice-play" data-voice-play="${lang}" title="Прослушать">${icon('play')}</button>`
-      : '<small class="voice-none">Нет голоса в этом браузере</small>') + '</div>';
+    const choice = voiceChoice(lang);
+    const option = (value, label) => `<option value="${escapeAttr(value)}"${(choice === ONLINE_VOICE ? ONLINE_VOICE : choice.name) === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    return `<div class="voice-row"><span class="voice-lang">${LANGS[lang].name}</span>` +
+      `<select data-voice-lang="${lang}">${option(ONLINE_VOICE, 'Google — онлайн')}` +
+      (('speechSynthesis' in window) ? voicesFor(lang).map((v) => option(v.name, voiceName(v))).join('') : '') + '</select>' +
+      `<button type="button" class="icon-btn voice-play" data-voice-play="${lang}" title="Прослушать">${icon('play')}</button></div>`;
   };
   d.innerHTML = '<div class="dialog-body"><h2>Озвучка</h2>' +
     Object.keys(LANGS).map(row).join('') +
     `<label class="voice-rate"><span>Скорость</span><input type="range" min="0.6" max="1.2" step="0.05" value="${store.get('rate', 0.9)}"></label>` +
-    '<p class="voice-tip">Голоса берутся из телефона или компьютера. На iPhone самые живые — улучшенные: Настройки → Универсальный доступ → ' +
-    'Устный контент → Голоса → выберите язык и скачайте голос с пометкой «улучшенный» или Premium, потом откройте это окно снова.</p>' +
+    '<p class="voice-tip">«Google — онлайн» звучит живее всего и умеет эстонский, но нужен интернет. ' +
+    'Остальные голоса — из телефона или компьютера: на iPhone улучшенные скачиваются в Настройки → Универсальный доступ → ' +
+    'Устный контент → Голоса.</p>' +
     '<div class="dialog-actions"><button type="button" class="primary-btn" data-dialog="close">Готово</button></div></div>';
   document.body.append(d);
-  const close = () => { d.close(); d.remove(); loadVoices(); };
+  const close = () => { d.close(); d.remove(); if ('speechSynthesis' in window) loadVoices(); };
   d.addEventListener('change', (e) => {
     const lang = e.target.dataset.voiceLang;
     if (lang) { store.set(voiceKey(lang), e.target.value); speakText(VOICE_SAMPLES[lang], lang); }
@@ -2871,16 +2877,29 @@ function openVoiceDialog() {
   d.showModal();
 }
 
-// auto — озвучка сама по себе, а не по нажатию: без голоса нужного языка молчим без предупреждения.
-// Чужой голос прочитал бы, например, эстонский с английским акцентом — поэтому честно говорим, что голоса нет
-const warnedNoVoice = new Set();
+// auto — озвучка сама по себе, а не по нажатию: без голоса нужного языка молчим без предупреждения
 function speakText(text, lang = 'en', auto = false) {
-  if (!('speechSynthesis' in window) || !text) return;
-  const voice = voiceFor(lang);
+  if (!text) return;
+  if (voiceChoice(lang) !== ONLINE_VOICE) { speakSystem(text, lang, auto); return; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  let failed = false;
+  const fallback = () => { if (!failed) { failed = true; speakSystem(text, lang, auto); } };
+  ttsAudio.onerror = fallback;
+  ttsAudio.src = onlineUrl(text, lang);
+  ttsAudio.playbackRate = store.get('rate', 0.9);
+  ttsAudio.play().catch((e) => { if (e.name !== 'AbortError') fallback(); }); // AbortError — следующее слово прервало это
+}
+
+// Голос браузера. Чужой голос прочитал бы, например, эстонский с английским акцентом — поэтому честно говорим, что голоса нет
+const warnedNoVoice = new Set();
+function speakSystem(text, lang, auto) {
+  if (!('speechSynthesis' in window)) return;
+  ttsAudio.pause();
+  const voice = systemVoice(lang);
   if (!voice && lang !== 'en' && speechSynthesis.getVoices().length) {
     if (!auto && !warnedNoVoice.has(lang)) {
       warnedNoVoice.add(lang);
-      toast(`В этом браузере нет голоса для языка «${LANGS[lang]?.name || lang}». Попробуйте Microsoft Edge`, 'volume');
+      toast(`Нет связи с онлайн-голосом, а в этом браузере нет голоса для языка «${LANGS[lang]?.name || lang}»`, 'volume');
     }
     return;
   }
@@ -2893,7 +2912,15 @@ function speakText(text, lang = 'en', auto = false) {
   setTimeout(() => speechSynthesis.speak(u), 60);
 }
 
+// iPhone разрешает звук только после касания: при первом касании «будим» плеер беззвучной записью,
+// чтобы потом слова звучали и сами — например, при показе новой карточки
+function unlockAudio() {
+  ttsAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+  ttsAudio.play().catch(() => {});
+}
+
 function initVoice() {
+  document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
   if (!('speechSynthesis' in window)) { $('voice-box').hidden = true; return; }
   loadVoices();
   speechSynthesis.addEventListener('voiceschanged', loadVoices); // в Chrome голоса приходят не сразу
