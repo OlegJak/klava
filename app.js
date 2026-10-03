@@ -2528,6 +2528,13 @@ function route() {
   $('page').hidden = onTrainer;
   scrollTo(0, 0);
   renderModeSwitch(!guest && !onTrainer && MODE_NAMES[r.screen] ? r.id : null, r.screen);
+  // плавное появление — только при переходе на другую страницу, а не при каждой перерисовке (ответ, выбор)
+  const body = $('page-body');
+  body.classList.remove('entering');
+  void body.offsetWidth; // перезапустить анимацию
+  body.classList.add('entering');
+  clearTimeout(route.enterTimer);
+  route.enterTimer = setTimeout(() => body.classList.remove('entering'), 450);
   if (guest) {
     if (location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
     renderCrumbs([]);
