@@ -1141,30 +1141,11 @@ function tone(ctx, freq, at, dur, type = 'sine', vol = 0.07, toFreq = null) {
   osc.stop(ctx.currentTime + at + dur + 0.02);
 }
 
-// Короткий шум — «шурх» переворота карточки
-function swish(ctx, vol = 0.05) {
-  const len = Math.floor(ctx.sampleRate * 0.12);
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-  const src = ctx.createBufferSource();
-  const filter = ctx.createBiquadFilter();
-  const gain = ctx.createGain();
-  src.buffer = buf;
-  filter.type = 'bandpass';
-  filter.frequency.setValueAtTime(1800, ctx.currentTime);
-  filter.frequency.exponentialRampToValueAtTime(700, ctx.currentTime + 0.12);
-  gain.gain.value = vol;
-  src.connect(filter).connect(gain).connect(ctx.destination);
-  src.start();
-}
-
 const SOUNDS = {
   correct: (c) => { tone(c, 880, 0, 0.12); tone(c, 1318.5, 0.08, 0.18); },
   wrong: (c) => { tone(c, 220, 0, 0.22, 'triangle', 0.09, 150); },
   know: (c) => { tone(c, 1046.5, 0, 0.12, 'sine', 0.05); },
   dontKnow: (c) => { tone(c, 330, 0, 0.14, 'triangle', 0.05, 260); },
-  flip: (c) => swish(c),
   pop: (c) => { tone(c, 600, 0, 0.09, 'sine', 0.07, 1100); },
   finish: (c) => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(c, f, i * 0.09, 0.22, 'sine', 0.06)),
 };
@@ -1807,7 +1788,6 @@ function flashSpeak() {
 
 function flashFlip() {
   flashcards.flipped = !flashcards.flipped;
-  sfx('flip');
   document.querySelector('.flash-card')?.classList.toggle('flipped', flashcards.flipped);
   if (flashcards.flipped) flashAutoSpeak();
 }
