@@ -1219,16 +1219,16 @@ function renderFlash() {
   $('page-body').innerHTML = `<div class="flash">${bar}` +
     `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
     '<div class="flash-inner">' +
-    '<span class="swipe-stamp yes">Знаю</span><span class="swipe-stamp no">Не знаю</span>' +
+    '<span class="swipe-stamp yes">Know</span><span class="swipe-stamp no">Don’t know</span>' +
     `<div class="face front"><span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
       ? 'Нажмите, чтобы перевернуть · Пробел · ← → — ответить'
       : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
     `<div class="face back"><span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
     '</div></div>' +
     '<div class="flash-actions">' +
-    '<button class="flash-btn no" data-act="flash-no">✗ Не знаю <kbd>←</kbd></button>' +
+    `<button class="flash-btn no" data-act="flash-no">${icon('x')} Don’t know <kbd>←</kbd></button>` +
     `<button class="flash-btn speak" data-act="flash-speak" title="Произнести">${icon('volume')}</button>` +
-    '<button class="flash-btn yes" data-act="flash-yes">✓ Знаю <kbd>→</kbd></button>' +
+    `<button class="flash-btn yes" data-act="flash-yes">${icon('check')} Know <kbd>→</kbd></button>` +
     '</div></div>';
 }
 

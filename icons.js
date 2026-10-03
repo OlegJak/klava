@@ -27,6 +27,7 @@
     cloud: '<path d="M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z"/>',
     alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
     check: '<path d="M5 12l5 5 9-10"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
     play: '<path d="M7 5l12 7-12 7z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
