@@ -72,11 +72,14 @@ const storage = {
   get: (key, def) => storage.backend.get(key, def),
   set: (key, val) => storage.backend.set(key, val),
 };
-const makeCore = () => KlavaCore.createCore({
+// Встроенные уроки видит только владелец сайта после входа; гости и новые пользователи начинают с нуля
+const OWNER_EMAILS = ['yakimush.oleg@gmail.com'];
+const makeCore = (builtIns = false) => KlavaCore.createCore({
   lessons: LESSONS, groups: GROUPS, notes: NOTES,
   storage,
   newId: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
   now: () => Date.now(),
+  builtIns,
 });
 let core = makeCore();
 const store = core.settings;
@@ -1103,7 +1106,39 @@ function renderToday() {
       `<span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`;
 }
 
+// Стартовый экран для новичка: своих модулей со словами ещё нет — предлагаем создать, импортировать или войти
+function renderWelcome() {
+  const action = (attrs, mode, iconName, title, sub) =>
+    `<${attrs.href ? 'a' : 'button'} class="mode-btn welcome-card" data-mode="${mode}"` +
+    Object.entries(attrs).map(([k, v]) => ` ${k}="${v}"`).join('') +
+    `><span class="mode-icon">${icon(iconName)}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span></${attrs.href ? 'a' : 'button'}>`;
+  const step = (n, iconName, title, sub) =>
+    `<li><span class="step-num">${n}</span><span class="step-icon">${icon(iconName)}</span><b>${title}</b><small>${sub}</small></li>`;
+  const login = cloud.client && !cloud.user
+    ? `<div class="welcome-login">${icon('cloud')}<span><b>Войдите через Google</b>` +
+      '<small>Модули и прогресс будут на всех ваших устройствах — на компьютере и телефоне</small></span>' +
+      '<button class="primary-btn" data-act="sign-in">Войти через Google</button></div>'
+    : '';
+  return '<section class="welcome">' +
+    '<div class="welcome-hero"><span class="brand-mark big">K</span>' +
+    '<h1>Учите слова так, как удобно вам</h1>' +
+    '<p>Соберите свой модуль — набор слов и выражений с переводами — и запоминайте его карточками, заучиванием, тестами ' +
+    'и игрой на скорость. Klava сама напомнит, когда пора повторить.</p></div>' +
+    '<div class="welcome-actions">' +
+    action({ href: '#/new' }, 'cards', 'plus', 'Создать модуль', 'Добавьте слова и переводы — перевод подставится сам') +
+    action({ href: '#/import' }, 'learn', 'download', 'Импорт из Quizlet', 'Вставьте экспорт модуля или список из таблицы') +
+    action({ 'data-act': 'new-folder' }, 'match', 'folder', 'Создать папку', 'Разложите модули по темам') +
+    '</div>' + login +
+    '<h2 class="welcome-title">Как это работает</h2><ol class="welcome-steps">' +
+    step(1, 'pen', 'Соберите модуль', 'Своими словами или импортом из Quizlet, с картинками и примерами') +
+    step(2, 'cards', 'Учите в режимах', 'Карточки, заучивание, тест, подбор пар и набор текста') +
+    step(3, 'calendar', 'Повторяйте вовремя', 'Слова возвращаются через 1, 3, 7, 14 и 30 дней — пока не запомнятся') +
+    '</ol></section>';
+}
+
 function renderHome() {
+  // нет ни встроенных уроков, ни своих модулей со словами — стартовый экран
+  if (!core.modules().some((m) => m.builtIn || m.cards.length)) return renderWelcome();
   const recent = core.recent().filter((id) => lessonInfo(id) && !core.isHidden(id));
   return renderHomeStats() + todayBanner() + (recent.length ? tilesSection('Недавние', recent.map(lessonTile)) : '') +
     tilesSection('Папки', allFolders().map(folderTile),
@@ -2480,11 +2515,39 @@ async function connectCloud() {
   try {
     const rows = await withTimeout(KlavaCloud.loadRows(cloud.client), 15000);
     cloud.storage = KlavaCloud.cloudStorage({ client: cloud.client, userId: cloud.user.id, rows, onStatus: onCloudStatus });
+    cloud.migrated = migrateBrowserData(rows);
     storage.backend = cloud.storage;
-    core = makeCore(); // на новом хранилище: заводит «Мои слова», если их ещё нет
+    core = makeCore(OWNER_EMAILS.includes(cloud.user.email)); // на новом хранилище: заводит «Мои слова», если их ещё нет
   } catch (e) {
     cloud.error = e; // остаёмся на данных браузера, плашка об этом скажет
   }
+}
+
+// Первый вход на этом устройстве: данные браузера (модули, прогресс, «Мои слова», рекорды)
+// сливаются с облачными и записываются в облако. Данные браузера остаются как были — для работы без входа.
+// Возвращает число перенесённых записей
+function migrateBrowserData(rows) {
+  const flag = `klava-migrated:${cloud.user.id}`;
+  let local = {};
+  try {
+    if (localStorage.getItem(flag)) return 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k.startsWith('klava:')) continue;
+      try { local[k.slice(6)] = JSON.parse(localStorage.getItem(k)); } catch {}
+    }
+    localStorage.setItem(flag, '1');
+  } catch {
+    local = {};
+  }
+  const merged = KlavaCore.mergeData(local, rows);
+  let changed = 0;
+  for (const [key, value] of Object.entries(merged)) {
+    if (JSON.stringify(value) === JSON.stringify(rows[key])) continue;
+    cloud.storage.set(key, value);
+    changed++;
+  }
+  return changed;
 }
 
 // После возврата от Google в адресе остаются ?code=… или ?error=… — убираем их, адрес экрана (#/…) сохраняем
@@ -2552,6 +2615,7 @@ function showStartupCloudError() {
 function initCloud() {
   renderAccount();
   showStartupCloudError();
+  if (cloud.migrated) toast('Данные этого браузера перенесены в облако', 'cloud');
   document.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'sign-in') signIn();

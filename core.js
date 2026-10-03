@@ -108,10 +108,13 @@
   }
 
   // lessons, groups, notes — LESSONS, GROUPS и NOTES из data.js;
-  // newId — источник уникальных id для своих папок, модулей и карточек; now — текущее время в мс
-  function createCore({ lessons, groups, notes, storage, newId, now }) {
-    const folders = [...groups, OWN_FOLDER].map((g) => ({ id: g.id, title: g.title, builtIn: true }));
-    const modules = Object.entries(lessons).map(([id, lesson]) => builtInModule(id, lesson, notes));
+  // newId — источник уникальных id для своих папок, модулей и карточек; now — текущее время в мс;
+  // builtIns — показывать ли встроенные уроки (их видит только владелец сайта, новые пользователи начинают с нуля).
+  // Словарь для подсказок (wordTranslations, phrases) строится по урокам в любом случае
+  function createCore({ lessons, groups, notes, storage, newId, now, builtIns = true }) {
+    const lessonModules = Object.entries(lessons).map(([id, lesson]) => builtInModule(id, lesson, notes));
+    const folders = [...(builtIns ? groups : []), OWN_FOLDER].map((g) => ({ id: g.id, title: g.title, builtIn: true }));
+    const modules = builtIns ? lessonModules : [];
     const byId = new Map(modules.map((m) => [m.id, m]));
     const builtInFolderIds = new Set(folders.map((f) => f.id));
 
@@ -382,7 +385,7 @@
       // устойчивые выражения — целиком («make sense» → «иметь смысл»)
       wordTranslations() {
         const dict = {};
-        for (const m of modules) {
+        for (const m of lessonModules) {
           if (m.kind !== 'words') continue;
           for (const { term, definition } of m.cards) {
             if (!term.includes(' ')) dict[term] = definition;
@@ -394,7 +397,7 @@
       },
 
       // Фразы всех фразовых модулей — из них берутся примеры употребления слов
-      phrases: () => modules.filter((m) => m.kind === 'phrases')
+      phrases: () => lessonModules.filter((m) => m.kind === 'phrases')
         .flatMap((m) => m.cards.map(({ term, definition }) => ({ term, definition }))),
 
       // «+ В словарь»: карточка в «Мои слова» (термин, перевод, пример с переводом); повтор не добавляется
@@ -672,6 +675,63 @@
     return s2.pos >= s.roundIds.length ? learnNextRound(s2) : learnView(s2);
   }
 
+  // ---------- Слияние данных браузера и облака (первый вход на устройстве) ----------
+  // local и cloud — записи хранилища { ключ: значение }. Ничего не теряем:
+  // свои папки и модули — объединение по id (при совпадении — из облака), «Мои слова» — по термину;
+  // прогресс — по каждой паре (карточка, направление) более свежий ответ; отметки и скрытые — объединение;
+  // рекорды — лучшие; счётчик ответов по дням — больший; недавние — сначала облачные; прочее (настройки) — из облака
+  const unionIds = (a = [], b = []) => [...new Set([...a, ...b])];
+  function mergeById(cloudList = [], localList = []) {
+    const ids = new Set(cloudList.map((x) => x.id));
+    return [...cloudList, ...localList.filter((x) => !ids.has(x.id))];
+  }
+  const MERGE = {
+    own(local, cloud) {
+      const modules = mergeById(cloud.modules, local.modules).map((m) => {
+        if (m.id !== MINE) return m;
+        const other = (local.modules || []).find((x) => x.id === MINE);
+        if (!other || other === m) return m;
+        const has = new Set(m.cards.map((c) => c.term.trim().toLowerCase()));
+        return { ...m, cards: [...m.cards, ...other.cards.filter((c) => !has.has(c.term.trim().toLowerCase()))] };
+      });
+      return { folders: mergeById(cloud.folders, local.folders), modules };
+    },
+    progress(local, cloud) {
+      const out = JSON.parse(JSON.stringify(cloud));
+      for (const [id, dirs] of Object.entries(local)) {
+        out[id] = out[id] || {};
+        for (const [dir, p] of Object.entries(dirs)) {
+          const c = out[id][dir];
+          if (!c || p.last > c.last || (p.last === c.last && p.box > c.box)) out[id][dir] = p;
+        }
+      }
+      return out;
+    },
+    starred: (local, cloud) => unionIds(cloud, local),
+    hidden: (local, cloud) => unionIds(cloud, local),
+    recent: (local, cloud) => unionIds(cloud, local).slice(0, 6),
+    'match-records'(local, cloud) {
+      const out = { ...cloud };
+      for (const [k, v] of Object.entries(local)) out[k] = out[k] == null ? v : Math.min(out[k], v);
+      return out;
+    },
+    best: (local, cloud) => Math.max(local, cloud),
+    activity(local, cloud) {
+      const out = { ...cloud };
+      for (const [d, n] of Object.entries(local)) out[d] = Math.max(out[d] || 0, n);
+      return out;
+    },
+  };
+
+  function mergeData(local, cloud) {
+    const out = { ...cloud };
+    for (const [key, value] of Object.entries(local)) {
+      if (!(key in cloud)) out[key] = value;
+      else if (MERGE[key]) out[key] = MERGE[key](value, cloud[key]);
+    }
+    return out;
+  }
+
   // ---------- Импорт ----------
   // Разделители: готовые варианты или свой текст. Тире — длинное или короткое с пробелами вокруг или без,
   // дефис — только с пробелами вокруг, чтобы не резать слова вроде well-known
@@ -767,5 +827,5 @@
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
     flashSession, flashAnswer, flashRetry, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
-    matchGame, matchPick, matchTime, MATCH_PENALTY_MS };
+    matchGame, matchPick, matchTime, MATCH_PENALTY_MS, mergeData };
 });

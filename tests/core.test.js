@@ -133,6 +133,74 @@ test('настоящие уроки из data.js загружаются в ка�
   }
 });
 
+// ---------- Без встроенных уроков (новые пользователи) ----------
+
+test('без встроенных уроков: только системная папка «Своё» и «Мои слова»', () => {
+  const core = makeCore({ builtIns: false });
+  assert.deepEqual(core.folders().map((f) => f.id), ['own']);
+  assert.deepEqual(core.modules().map((m) => m.id), ['mine']);
+  assert.equal(core.module('basic'), null);
+  assert.deepEqual(core.dueCards(), []);
+});
+
+test('без встроенных уроков: свои папки и модули работают как обычно', () => {
+  const core = makeCore({ builtIns: false });
+  const f = core.createFolder('Работа');
+  const m = core.createModule({ title: 'Встречи', folderId: f.id });
+  core.addCard(m.id, { term: 'meeting', definition: 'встреча' });
+  assert.deepEqual(core.folders().map((x) => x.id), ['own', f.id]);
+  assert.throws(() => core.createModule({ title: 'X', folderId: 'words' })); // встроенной папки нет
+  assert.equal(core.module(m.id).cards.length, 1);
+});
+
+// ---------- Слияние данных браузера и облака ----------
+
+const { mergeData } = KlavaCore;
+
+test('слияние: облако пустое — берутся данные браузера', () => {
+  const local = { own: { folders: [{ id: 'f_1', title: 'A' }], modules: [] }, theme: 'dark' };
+  assert.deepEqual(mergeData(local, {}), local);
+});
+
+test('слияние: свои папки и модули объединяются по id, при совпадении — из облака', () => {
+  const local = { own: { folders: [{ id: 'f_1', title: 'Локальная' }, { id: 'f_2', title: 'Только тут' }],
+    modules: [{ id: 'm_1', title: 'Локальный', folderId: 'f_1', cards: [] }, { id: 'm_2', title: 'Новый', folderId: 'f_2', cards: [] }] } };
+  const cloud = { own: { folders: [{ id: 'f_1', title: 'Облачная' }], modules: [{ id: 'm_1', title: 'Облачный', folderId: 'f_1', cards: [] }] } };
+  const r = mergeData(local, cloud).own;
+  assert.deepEqual(r.folders.map((f) => f.title), ['Облачная', 'Только тут']);
+  assert.deepEqual(r.modules.map((m) => m.title), ['Облачный', 'Новый']);
+});
+
+test('слияние: «Мои слова» объединяются по термину', () => {
+  const mine = (cards) => ({ id: 'mine', title: 'Мои слова', folderId: 'own', cards });
+  const local = { own: { folders: [], modules: [mine([{ id: 'c_1', term: 'tide' }, { id: 'c_2', term: 'ebb' }])] } };
+  const cloud = { own: { folders: [], modules: [mine([{ id: 'c_9', term: 'Tide' }, { id: 'c_8', term: 'wave' }])] } };
+  assert.deepEqual(mergeData(local, cloud).own.modules[0].cards.map((c) => c.term), ['Tide', 'wave', 'ebb']);
+});
+
+test('слияние: прогресс — по каждой паре (карточка, направление) более свежий ответ', () => {
+  const local = { progress: { a: { 'en-ru': { box: 3, due: 20, last: 10 } }, b: { 'en-ru': { box: 1, due: 5, last: 4 } } } };
+  const cloud = { progress: { a: { 'en-ru': { box: 1, due: 9, last: 8 }, 'ru-en': { box: 2, due: 9, last: 6 } }, b: { 'en-ru': { box: 4, due: 30, last: 16 } } } };
+  assert.deepEqual(mergeData(local, cloud).progress, {
+    a: { 'en-ru': { box: 3, due: 20, last: 10 }, 'ru-en': { box: 2, due: 9, last: 6 } },
+    b: { 'en-ru': { box: 4, due: 30, last: 16 } },
+  });
+});
+
+test('слияние: отметки и скрытые — вместе, рекорды — лучшие, счётчики по дням — больший', () => {
+  const r = mergeData(
+    { starred: ['a', 'b'], hidden: ['x'], 'match-records': { m: 9000, n: 5000 }, best: 210, activity: { 1: 5, 2: 3 }, recent: ['m1', 'm2'], theme: 'dark' },
+    { starred: ['b', 'c'], hidden: ['y'], 'match-records': { m: 7000 }, best: 180, activity: { 2: 7, 3: 1 }, recent: ['m3', 'm1'], theme: 'light' },
+  );
+  assert.deepEqual(r.starred, ['b', 'c', 'a']);
+  assert.deepEqual(r.hidden, ['y', 'x']);
+  assert.deepEqual(r['match-records'], { m: 7000, n: 5000 });
+  assert.equal(r.best, 210);
+  assert.deepEqual(r.activity, { 1: 5, 2: 7, 3: 1 });
+  assert.deepEqual(r.recent, ['m3', 'm1', 'm2']);
+  assert.equal(r.theme, 'light'); // настройки — из облака
+});
+
 // ---------- Свои папки и модули ----------
 
 test('своя папка: создать, переименовать; появляется после встроенных', () => {

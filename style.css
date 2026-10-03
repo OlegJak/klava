@@ -862,6 +862,44 @@ button { border-radius: 8px; font-weight: 600; }
 .edit-card.new { border: 2px dashed var(--line); box-shadow: none; background: transparent; }
 .edit-card.new .edit-card-head { border-bottom-color: transparent; }
 
+/* ---------- Стартовый экран ---------- */
+.welcome { max-width: 860px; margin: 0 auto; padding-bottom: 24px; }
+.welcome-hero { text-align: center; padding: 40px 8px 28px; }
+.brand-mark.big { width: 64px; height: 64px; font-size: 32px; margin: 0 auto 18px; box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 40%, transparent); }
+.welcome-hero h1 { margin: 0 0 12px; font-size: clamp(28px, 5vw, 42px); font-weight: 800; line-height: 1.15; letter-spacing: -.02em; }
+.welcome-hero p { margin: 0 auto; max-width: 620px; font-size: 17px; color: var(--muted); }
+.welcome-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.welcome-card { flex-direction: column; align-items: flex-start; padding: 22px; text-align: left; border: none; font: inherit; color: var(--text); background: var(--panel); cursor: pointer; }
+.welcome-card .mode-icon { width: 54px; height: 54px; }
+.welcome-card .mode-icon .i { width: 28px; height: 28px; }
+.welcome-card .tile-text b { font-size: 18px; }
+.welcome-login {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-top: 16px; padding: 18px 22px;
+  background: var(--accent-soft); border-radius: 16px;
+}
+.welcome-login > .i { width: 32px; height: 32px; color: var(--accent); }
+.welcome-login > span { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; }
+.welcome-login small { color: var(--muted); }
+.welcome-title { margin: 36px 0 14px; font-size: 22px; font-weight: 800; text-align: center; }
+.welcome-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.welcome-steps li {
+  position: relative; display: flex; flex-direction: column; gap: 6px;
+  padding: 22px 20px 20px; background: var(--panel); border-radius: 16px; box-shadow: var(--shadow);
+}
+.step-num {
+  position: absolute; top: 14px; right: 16px;
+  font-size: 34px; font-weight: 800; line-height: 1; color: var(--accent-soft);
+}
+.step-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+.step-icon .i { width: 22px; height: 22px; }
+.welcome-steps b { font-size: 16px; margin-top: 6px; }
+.welcome-steps small { color: var(--muted); font-size: 14px; }
+@media (max-width: 640px) {
+  .welcome-hero { padding-top: 24px; }
+  .welcome-actions, .welcome-steps { grid-template-columns: 1fr; }
+}
+
 /* ---------- Значки и плашки модулей ---------- */
 .i { width: 1.15em; height: 1.15em; flex: none; vertical-align: -.2em; }
 button .i, a .i { pointer-events: none; }
