@@ -2334,7 +2334,8 @@ function editCardRow(c, i, moveTo = []) {
     `<button class="icon-btn drag-handle" title="Перетащить">${icon('grip')}</button>` +
     `<button class="icon-btn" data-act="card-delete" title="Удалить карточку">${icon('trash')}</button></span></div>` +
     '<div class="edit-card-body">' +
-    `<div class="edit-main">${input('term', 'Термин', c?.term)}${input('definition', 'Определение', c?.definition)}</div>` +
+    `<div class="edit-main">${input('term', 'Термин', c?.term)}${input('definition', 'Определение', c?.definition)}` +
+    '<div class="tr-suggest" hidden></div></div>' +
     `${imageBox(c)}</div>` +
     `<details class="edit-more"${hasMore ? ' open' : ''}><summary>${moveTo.length ? 'Пример, объяснение, перенос' : 'Пример и объяснение'}</summary>` +
     `<div class="edit-more-grid">${input('example', 'Пример', c?.example)}${input('exampleTranslation', 'Перевод примера', c?.exampleTranslation)}</div>` +
@@ -2421,7 +2422,7 @@ function renderEditModule(id) {
     `<label class="field"><span>Папка</span>${folderSelect('edit-folder', m.folderId)}</label>` +
     langFields('edit', m.langs || DEFAULT_LANGS) +
     '<div class="edit-cards-head"><h2 class="edit-cards-title">Карточки</h2>' +
-    '<small>Карточка сохраняется, когда введён термин; пустые карточки не сохраняются. Если языки сторон разные, перевод подставится сам</small></div>' +
+    '<small>Карточка сохраняется, когда введён термин; пустые карточки не сохраняются. Если языки сторон разные, под определением появятся варианты перевода — нажмите нужные</small></div>' +
     `<ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol>` +
     `<button type="button" class="add-card" data-act="card-add">${icon('plus')}Добавить карточку<kbd>Enter</kbd></button>` +
     `<div class="edit-footer">${saveButton()}</div></div>`;
@@ -2593,6 +2594,77 @@ function fillTranslation(moduleId, cardId, term) {
   });
 }
 
+// ---------- Варианты перевода в редакторе ----------
+// Ввели термин — под определением появляются варианты из Google Переводчика (главный перевод и словарные
+// значения по частям речи). Нажатие добавляет вариант в определение через запятую, повторное — убирает.
+// Сами в определение ничего не вставляем
+const variantsCache = {};
+function translateVariants(word, from, to) {
+  const key = `${from}>${to}:${word}`;
+  variantsCache[key] ??= fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&dt=bd&q=` +
+    encodeURIComponent(word))
+    .then((r) => r.json())
+    .then((j) => {
+      const main = (j[0] || []).map((x) => x[0]).join('').trim();
+      // словарь: [часть речи, [слова], [[слово, обратные переводы, _, частота], …]]; берём по 3 самых частых
+      const dict = (j[1] || []).flatMap(([pos, , entries]) => (entries || [])
+        .filter((e) => e[3] === undefined || e[3] >= 0.0005).slice(0, 3).map((e) => ({ text: e[0], pos })));
+      const seen = new Set();
+      return [{ text: main, pos: '' }, ...dict].filter((v) => {
+        const k = v.text.toLowerCase();
+        if (!v.text || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).slice(0, 9);
+    })
+    .catch(() => { delete variantsCache[key]; return []; });
+  return variantsCache[key];
+}
+
+const defParts = (text) => text.split(/\s*[,;]\s*/).map((x) => x.trim()).filter(Boolean);
+
+function drawSuggest(row, variants) {
+  const box = row.querySelector('.tr-suggest');
+  const chosen = new Set(defParts(row.querySelector('[data-field="definition"]').value).map((x) => x.toLowerCase()));
+  box.hidden = !variants.length;
+  box.innerHTML = variants.length ? '<small>Варианты перевода</small><div class="tr-chips">' + variants.map((v) =>
+    `<button type="button" class="tr-chip${chosen.has(v.text.toLowerCase()) ? ' on' : ''}" data-act="tr-pick" ` +
+    `data-text="${escapeAttr(v.text)}"${v.pos ? ` title="${escapeAttr(v.pos)}"` : ''}>${escapeHtml(v.text)}</button>`).join('') + '</div>' : '';
+}
+
+let suggestTimer = 0;
+function suggestTranslations(row, delay = 0) {
+  clearTimeout(suggestTimer);
+  const id = editorModule();
+  const term = row.querySelector('[data-field="term"]').value.trim();
+  const langs = langsOf(id);
+  if (!term || langs.term === langs.definition) { drawSuggest(row, []); return; }
+  suggestTimer = setTimeout(() => {
+    translateVariants(term, langs.term, langs.definition).then((variants) => {
+      // пока ждали ответа, термин могли поменять
+      if (row.isConnected && row.querySelector('[data-field="term"]').value.trim() === term) {
+        // варианты показываем у одной карточки — той, с которой работают
+        for (const other of $('edit-cards').querySelectorAll('.tr-suggest:not([hidden])')) if (!row.contains(other)) other.hidden = true;
+        drawSuggest(row, variants);
+      }
+    });
+  }, delay);
+}
+
+// нажатие на вариант: добавить в определение или убрать из него
+function pickVariant(btn) {
+  const row = btn.closest('.edit-card');
+  const def = row.querySelector('[data-field="definition"]');
+  const text = btn.dataset.text;
+  const parts = defParts(def.value);
+  const at = parts.findIndex((x) => x.toLowerCase() === text.toLowerCase());
+  if (at >= 0) parts.splice(at, 1); else parts.push(text);
+  def.value = parts.join(', ');
+  def.dispatchEvent(new Event('input', { bubbles: true }));
+  def.dispatchEvent(new Event('change', { bubbles: true }));
+  btn.classList.toggle('on', at < 0);
+}
+
 // Черновик становится карточкой на месте, без перерисовки: фокус остаётся там, куда его перевёл человек.
 // Карточка встаёт в модуле туда же, где стоит в списке
 function promoteDraft(moduleId, row, card) {
@@ -2640,7 +2712,7 @@ function onEditorChange(e) {
     for (const input of row.querySelectorAll('[data-field]')) if (input.value.trim()) fields[input.dataset.field] = input.value;
     const card = core.addCard(id, fields);
     promoteDraft(id, row, card);
-    if (!card.definition) fillTranslation(id, card.id, card.term);
+    if (!card.definition) suggestTranslations(row);
     return;
   }
 
@@ -2651,7 +2723,7 @@ function onEditorChange(e) {
     return;
   }
   core.updateCard(id, cardId, { [field]: el.value });
-  if (field === 'term' && !defInput.value.trim()) fillTranslation(id, cardId, el.value.trim());
+  if (field === 'term') suggestTranslations(row);
 }
 
 function onEditorCardAction(act, cardId, row) {
@@ -2895,6 +2967,8 @@ function onPageAction(e) {
     toast('Модуль снова в папке', 'eye');
   } else if (act === 'import-go') {
     doImport();
+  } else if (act === 'tr-pick') {
+    pickVariant(btn);
   } else if (act === 'edit-save') {
     saveEdits();
   } else if (act === 'card-add') {
@@ -3255,6 +3329,13 @@ function initPages() {
     startFlash(flashcards.moduleId, { fresh: true });
   });
   $('page-body').addEventListener('change', onEditorChange);
+  $('page-body').addEventListener('input', (e) => {
+    if (e.target.matches?.('.edit-card [data-field="term"]')) suggestTranslations(e.target.closest('.edit-card'), 450);
+  });
+  $('page-body').addEventListener('focusin', (e) => {
+    const row = e.target.closest?.('.edit-card');
+    if (row && e.target.matches('[data-field="definition"]') && row.querySelector('.tr-suggest').hidden) suggestTranslations(row);
+  });
   // любой ввод в редакторе — несохранённая правка
   for (const type of ['input', 'change']) {
     $('page-body').addEventListener(type, (e) => { if (e.target.closest?.('[data-module]')) markDirty(); });

@@ -392,6 +392,20 @@ input {
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field textarea { padding: 7px 10px; resize: vertical; }
 .edit-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* Варианты перевода под определением */
+.tr-suggest { grid-column: 2; display: flex; flex-direction: column; gap: 8px; margin-top: -8px; animation: rise .2s ease-out; }
+.tr-suggest small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tr-chip {
+  padding: 6px 12px; border: 2px solid var(--line); border-radius: 999px;
+  font-size: 14px; font-weight: 600; color: var(--text); background: var(--panel);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.tr-chip:hover { border-color: var(--accent); color: var(--accent); }
+.tr-chip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.tr-chip.on::before { content: "✓ "; }
+@media (max-width: 640px) { .tr-suggest { grid-column: auto; margin-top: -4px; } }
+
 /* «Готово» / «Сохранить изменения» — вверху и под карточками */
 .edit-footer { display: flex; justify-content: flex-end; margin-top: 8px; }
 .edit-save { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 16px; }
