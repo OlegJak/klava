@@ -655,11 +655,15 @@
 
   const LEARN_ROUND = 7;
 
+  // direction: 'en-ru', 'ru-en' или 'mixed' — в выборе из вариантов направление случайное для каждого вопроса,
+  // а писать всегда нужно термин (по определению). Для смешанного нужны обе стороны карточки
   function learnSession(cards, { direction = 'en-ru', shuffle = false, random = Math.random } = {}) {
-    const { ask, want } = sidesOf(direction);
-    const usable = (shuffle ? shuffled(cards, random) : cards.slice()).filter((c) => (want(c) || '').trim());
+    const has = (x) => (x || '').trim();
+    const usable = (shuffle ? shuffled(cards, random) : cards.slice()).filter((c) => (direction === 'mixed'
+      ? has(c.term) && has(c.definition)
+      : has(sidesOf(direction).want(c))));
     const base = {
-      cards: usable, ask, want, random,
+      cards: usable, direction, random,
       progress: {},                       // id → { stage, streak }
       waiting: usable.map((c) => c.id),   // ещё не начатые
       active: [],                         // в работе, не больше LEARN_ROUND
@@ -690,11 +694,15 @@
     };
   }
 
+  // direction вопроса — для смешанного: случайное в выборе, «по определению написать термин» во вводе
   function learnQuestion(s, card) {
     const { stage } = s.progress[card.id] || { stage: 1 };
-    const answer = s.want(card);
-    const choices = stage === 1 ? shuffled([answer, ...distractors(s.cards, s.want, answer, 3, s.random)], s.random) : null;
-    return { card, stage, prompt: s.ask(card), answer, choices };
+    let direction = s.direction;
+    if (direction === 'mixed') direction = stage === 1 && s.random() < 0.5 ? 'en-ru' : 'ru-en';
+    const { ask, want } = sidesOf(direction);
+    const answer = want(card);
+    const choices = stage === 1 ? shuffled([answer, ...distractors(s.cards, want, answer, 3, s.random)], s.random) : null;
+    return { card, stage, direction, prompt: ask(card), answer, choices };
   }
 
   function learnAnswer(s, ok) {

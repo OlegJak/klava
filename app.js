@@ -1809,17 +1809,19 @@ const learn = { moduleId: null, state: null, feedback: null }; // feedback: { re
 
 function startLearn(moduleId) {
   learn.moduleId = moduleId;
-  learn.state = KlavaCore.learnSession(deckCards(moduleId), { direction: flashDir() });
+  learn.state = KlavaCore.learnSession(deckCards(moduleId), { direction: learnDir() });
   learn.feedback = null;
   renderLearn();
   learnAutoSpeak();
 }
 
 // Сторона с термином: в прямом направлении — вопрос, в обратном — ответ (звучит после ответа)
+// Направление заучивания — своё: кроме «англ → рус» и обратно есть «Смешанно»
+const learnDir = () => store.get('learn-dir', flashDir());
 const learnTerm = () => {
   const q = learn.state.question;
   if (!q) return null;
-  if (flashDir() === 'en-ru') return q.prompt;
+  if (q.direction === 'en-ru') return q.prompt;
   return learn.feedback ? q.answer : null;
 };
 const learnTermLang = () => cardLangs(learn.state.question.card.id, learn.moduleId).term;
@@ -1831,10 +1833,12 @@ function learnAutoSpeak() {
 function renderLearn() {
   const s = learn.state;
   const fb = learn.feedback;
-  const dir = flashDir();
-  const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="learn-dir" data-dir="${value}">${label}</button>`;
+  const dir = learnDir();
+  const seg = (value, label, tip = '') => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="learn-dir" data-dir="${value}"` +
+    `${tip ? ` data-tip="${tip}"` : ''}>${label}</button>`;
   const bar = '<div class="flash-bar">' +
-    `<div class="seg">${seg('en-ru', dirLabels(learn.moduleId)['en-ru'])}${seg('ru-en', dirLabels(learn.moduleId)['ru-en'])}</div>` +
+    `<div class="seg">${seg('en-ru', dirLabels(learn.moduleId)['en-ru'])}${seg('ru-en', dirLabels(learn.moduleId)['ru-en'])}` +
+    `${seg('mixed', 'Смешанно', 'Выбор — в обе стороны, писать — термин')}</div>` +
     (s.done ? '' : `<span class="learn-round">Раунд ${s.round}</span>`) +
     `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span>` +
     `<button class="icon-btn voice-btn" data-act="voice-settings" data-tip="Голос озвучки" aria-label="Голос озвучки">${icon('volume')}</button></div>` +
@@ -1854,8 +1858,8 @@ function renderLearn() {
   const what = q.stage === 1 ? 'Выберите' : 'Напишите';
   // что писать: «перевод» и «по-эстонски» или, у терминов, «определение» и «термин»
   const langs = deckLangs(learn.moduleId);
-  const target = isTermDeck(langs) ? (dir === 'en-ru' ? 'определение' : 'термин')
-    : dir === 'en-ru' ? 'перевод' : LANGS[langs.term]?.adv || 'термин';
+  const target = isTermDeck(langs) ? (q.direction === 'en-ru' ? 'определение' : 'термин')
+    : q.direction === 'en-ru' ? 'перевод' : LANGS[langs.term]?.adv || 'термин';
   const speakBtn = learnTerm() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '';
   let body;
   if (q.stage === 1) {
@@ -1902,12 +1906,12 @@ function renderLearn() {
 function learnRespond(result, given, choice) {
   learn.feedback = { result, given, choice };
   renderLearn();
-  if (flashDir() === 'ru-en') learnAutoSpeak();
+  if (learn.state.question.direction === 'ru-en') learnAutoSpeak();
 }
 
 // Дальше: ответ засчитывается («почти» — тоже верно) и занятие переходит к следующему вопросу
 function learnContinue(ok = learn.feedback.result !== 'wrong') {
-  core.recordAnswer(learn.state.question.card.id, flashDir(), ok);
+  core.recordAnswer(learn.state.question.card.id, learn.state.question.direction, ok);
   learn.state = KlavaCore.learnAnswer(learn.state, ok);
   learn.feedback = null;
   renderLearn();
@@ -1925,7 +1929,7 @@ function onLearnAction(act, btn) {
   else if (act === 'learn-override') learnContinue(true);
   else if (act === 'learn-speak') speakText(learnTerm(), learnTermLang());
   else if (act === 'learn-restart') startLearn(learn.moduleId);
-  else if (act === 'learn-dir') { store.set('cards-dir', btn.dataset.dir); startLearn(learn.moduleId); }
+  else if (act === 'learn-dir') { store.set('learn-dir', btn.dataset.dir); startLearn(learn.moduleId); }
 }
 
 function onLearnSubmit(e) {

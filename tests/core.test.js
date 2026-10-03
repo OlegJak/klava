@@ -591,6 +591,22 @@ test('заучивание: «рус → англ» — спрашивается
   assert.ok(q.choices.every((c) => /^term\d$/.test(c)));
 });
 
+test('заучивание: «смешанно» — в выборе направление случайное, писать всегда термин', () => {
+  const toRu = learnSession(words, { direction: 'mixed', random: () => 0.1 }).question;
+  assert.deepEqual([toRu.direction, toRu.prompt, toRu.answer], ['en-ru', 'term0', 'опр0']);
+  assert.ok(toRu.choices.every((c) => /^опр\d$/.test(c)));
+  const toEn = learnSession(words, { direction: 'mixed', random: () => 0.9 }).question;
+  assert.deepEqual([toEn.direction, toEn.prompt, toEn.answer], ['ru-en', 'опр0', 'term0']);
+  let s = learnSession(words.slice(0, 2), { direction: 'mixed', random: () => 0.1 });
+  s = answerRound(s, true); // выбор пройден — дальше ввод
+  assert.deepEqual([s.question.stage, s.question.direction, s.question.answer], [2, 'ru-en', 'term0']);
+});
+
+test('заучивание: «смешанно» берёт только карточки с термином и определением', () => {
+  const cards = [...words.slice(0, 2), { id: 'x', term: 'lonely', definition: '' }];
+  assert.equal(learnSession(cards, { direction: 'mixed' }).total, 2);
+});
+
 test('заучивание: верный выбор переводит на ввод, освоено после двух верных вводов подряд', () => {
   let s = learnSession(words.slice(0, 2));
   s = answerRound(s, true);              // раунд 1: выбор
