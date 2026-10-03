@@ -782,6 +782,39 @@ button { border-radius: 8px; font-weight: 600; }
 
 .edit-card.new { border: 2px dashed var(--line); box-shadow: none; background: transparent; }
 
+/* ---------- Значки и плашки модулей ---------- */
+.i { width: 1.15em; height: 1.15em; flex: none; vertical-align: -.2em; }
+button .i, a .i { pointer-events: none; }
+.badge {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  color: #fff; background: var(--badge, var(--accent));
+  border-radius: 10px;
+  font-size: 15px; font-weight: 800; letter-spacing: -.02em;
+}
+.badge .i, .tile-icon .badge .i { width: 55%; height: 55%; color: #fff; }
+.tile-icon:has(.badge) { background: none; }
+.badge-lg { width: 56px; height: 56px; flex: none; border-radius: 14px; font-size: 20px; }
+.lesson-icon:has(.badge) { background: none; }
+.lesson-icon .badge { border-radius: 8px; font-size: 12px; }
+.tile-icon .i { width: 24px; height: 24px; color: var(--accent); }
+.tile.own .tile-icon { background: color-mix(in srgb, var(--m-match) 18%, transparent); }
+.tile.own .tile-icon .i { color: var(--m-match); }
+.mode-icon .i { width: 26px; height: 26px; color: var(--mode-color, var(--accent)); }
+.today-banner .mode-icon .i { color: #fff; }
+.today-banner.calm .mode-icon .i { color: var(--accent); }
+.stat-icon .i { width: 28px; height: 28px; }
+.stat:nth-child(1) .stat-icon { color: #f28b2c; }
+.stat:nth-child(2) .stat-icon { color: var(--accent); }
+.stat:nth-child(3) .stat-icon { color: #d4a017; }
+.explain-icon { color: var(--ok); }
+.explain-icon .i { width: 18px; height: 18px; vertical-align: -.25em; }
+.flash-btn.speak .i, .icon-btn .i { width: 20px; height: 20px; }
+.theme-btn .i { width: 18px; height: 18px; vertical-align: -.25em; }
+.toast .i { width: 18px; height: 18px; }
+.cloud-banner > .i { width: 22px; height: 22px; color: var(--bad); }
+.account-email .i { vertical-align: -.25em; color: var(--accent); }
+.dict-hint .i { vertical-align: -.2em; }
+
 /* ---------- Интерактивность: статистика, прогресс, анимации ---------- */
 /* Статистика на главной */
 .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }

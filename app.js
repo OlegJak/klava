@@ -228,7 +228,7 @@ function renderExplain(chunk) {
   const show = Boolean(note) && $('show-explain').checked && !textHidden();
   el.hidden = !show;
   if (!show) return;
-  el.innerHTML = `<span class="explain-icon">📘</span><div class="explain-body">${noteHtml(note)}</div>`;
+  el.innerHTML = `<span class="explain-icon">${icon('book')}</span><div class="explain-body">${noteHtml(note)}</div>`;
 }
 
 // Разметка объяснений: **жирный** и `формула`
@@ -271,7 +271,7 @@ function renderDictation(chunk) {
       $('text').innerHTML = `<span class="tr-prompt">${ru ? escapeHtml(ru) : ru === null ? '…' : 'перевод недоступен'}</span>`;
       $('translation').innerHTML = '<span class="dict-hint">Наберите по-английски · <kbd>Enter</kbd> — проверить</span>';
     } else {
-      $('text').innerHTML = '<span class="dict-hint">🎧 Слушайте и печатайте · <kbd>Enter</kbd> — проверить · <kbd>Ctrl+Space</kbd> — повторить</span>';
+      $('text').innerHTML = `<span class="dict-hint">${icon('headphones')} Слушайте и печатайте · <kbd>Enter</kbd> — проверить · <kbd>Ctrl+Space</kbd> — повторить</span>`;
       $('translation').textContent = '';
     }
     return;
@@ -591,7 +591,7 @@ function finish() {
   $('result-text').innerHTML =
     `Скорость: <b>${speed}</b> зн/мин (≈${Math.round(speed / 5)} слов/мин)<br>` +
     `Точность: <b>${accuracy()}%</b>, ошибок: <b>${state.errors}</b>` +
-    (record ? '<br>🏆 Новый рекорд!' : '');
+    (record ? `<br>${icon('trophy')} Новый рекорд!` : '');
   $('result').hidden = false;
   $('again').focus();
 }
@@ -703,7 +703,7 @@ async function addToStudy(en, from = -1) {
   // в словарных уроках строка — само слово, примером она не служит
   const example = ex && ex.en !== en ? ex : null;
   const added = core.addMyWord({ term: en, definition: definition || '', example: example?.en, exampleTranslation: example?.ru || '' });
-  toast(added ? `«${en}» — в «Моих словах»` : `«${en}» уже в «Моих словах»`, '⭐');
+  toast(added ? `«${en}» — в «Моих словах»` : `«${en}» уже в «Моих словах»`, 'star');
 }
 
 function saveLookup(lk) {
@@ -923,8 +923,8 @@ function renderExampleList(lk) {
 // #/new или #/new/<папка> — новый модуль, #/custom — «Свой текст»
 // «Свой текст» — не модуль, а режим тренажёра; живёт в системной папке «Своё» рядом с «Моими словами»
 const SPECIAL = {
-  custom: { title: 'Свой текст', group: 'own', icon: '📝' },
-  today: { title: 'Повторить сегодня', group: null, icon: '📅' },
+  custom: { title: 'Свой текст', group: 'own' },
+  today: { title: 'Повторить сегодня', group: null },
 };
 
 // Колода для режимов: карточки модуля или очередь «Сегодня» (id 'today') — слова всех модулей, срок которых наступил
@@ -965,9 +965,26 @@ const folderLessons = (folderId) => [...core.modules(folderId).map((m) => m.id),
 const lessonHref = (id) => (id === 'custom' ? '#/custom' : `#/module/${id}`);
 const lessonCards = (id) => core.module(id).cards;
 
-// extra — что-то под подписью, например полоска прогресса
-const tile = (href, icon, title, sub, extra = '') =>
-  `<a class="tile" href="${href}"><span class="tile-icon">${icon}</span>` +
+// Плашка модуля: цветной квадрат с буквами названия («Co», «A1»), у особых — значок.
+// Цвет постоянный для модуля — выбирается по его id
+const BADGE_COLORS = ['#4255ff', '#18ae79', '#f28b2c', '#e2557c', '#20b5c4', '#8b5cf6', '#d4a017'];
+const BADGE_ICONS = { mine: 'star', custom: 'file', today: 'calendar' };
+function monogram(title) {
+  const level = title.match(/\b[ABC][12]\b/);
+  if (level) return level[0];
+  const word = (title.match(/[\p{L}\d]+/gu) || ['?'])[0];
+  return word[0].toUpperCase() + (word[1] || '');
+}
+function lessonBadge(id, cls = '') {
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const inner = BADGE_ICONS[id] ? icon(BADGE_ICONS[id]) : escapeHtml(monogram(lessonInfo(id).title));
+  return `<span class="badge ${cls}" style="--badge:${BADGE_COLORS[h % BADGE_COLORS.length]}">${inner}</span>`;
+}
+
+// extra — что-то под подписью, например полоска прогресса; cls — дополнительный класс плитки
+const tile = (href, iconHtml, title, sub, extra = '', cls = '') =>
+  `<a class="tile ${cls}" href="${href}"><span class="tile-icon">${iconHtml}</span>` +
   `<span class="tile-text"><b>${escapeHtml(title)}</b><small>${sub}</small>${extra}</span></a>`;
 const dueNote = (n) => (n ? ` · <span class="due-count">ждут: ${n}</span>` : '');
 // Полоска «выучено X%»: показываем, когда модуль уже начат
@@ -977,15 +994,14 @@ const progressBar = (s) => (s.seen && s.total
   : '');
 const lessonTile = (id) => {
   const l = lessonInfo(id);
-  if (SPECIAL[id]) return tile(lessonHref(id), l.icon, l.title, lessonCount(id));
+  if (SPECIAL[id]) return tile(lessonHref(id), lessonBadge(id), l.title, lessonCount(id));
   const s = core.moduleStats(id);
-  return tile(lessonHref(id), l.icon, l.title, lessonCount(id) + dueNote(s.due), progressBar(s));
+  return tile(lessonHref(id), lessonBadge(id), l.title, lessonCount(id) + dueNote(s.due), progressBar(s));
 };
 const folderTile = (f) => {
   const ids = folderLessons(f.id);
-  const icons = ids.slice(0, 4).map((id) => lessonInfo(id).icon).join(' ');
-  return tile(`#/folder/${f.id}`, f.builtIn ? '📁' : '🗂️', f.title,
-    plural(ids.length, 'модуль', 'модуля', 'модулей') + (icons ? ` · ${icons}` : '') + dueNote(core.dueCount(f.id)));
+  return tile(`#/folder/${f.id}`, icon('folder'), f.title,
+    plural(ids.length, 'модуль', 'модуля', 'модулей') + dueNote(core.dueCount(f.id)), '', f.builtIn ? '' : 'own');
 };
 const tilesSection = (title, tiles, actions = '') =>
   `<section class="tiles-section"><div class="section-head"><h2>${escapeHtml(title)}</h2>${actions}</div>` +
@@ -997,10 +1013,10 @@ const actionLink = (href, label) => `<a class="pill-btn" href="${href}">${label}
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Короткое уведомление внизу экрана
-function toast(text, icon = '✓') {
+function toast(text, iconName = 'check') {
   const el = document.createElement('div');
   el.className = 'toast';
-  el.innerHTML = `<span>${icon}</span>${escapeHtml(text)}`;
+  el.innerHTML = `${icon(iconName)}${escapeHtml(text)}`;
   $('toasts').append(el);
   setTimeout(() => el.classList.add('out'), 2400);
   setTimeout(() => el.remove(), 2800);
@@ -1044,9 +1060,9 @@ function renderHomeStats() {
   const stat = (icon, value, label, cls = '') =>
     `<div class="stat ${cls}"><span class="stat-icon">${icon}</span><span class="stat-text"><b>${value}</b><small>${label}</small></span></div>`;
   return '<section class="stats-row">' +
-    stat('🔥', a.streak, plural(a.streak, 'день подряд', 'дня подряд', 'дней подряд').replace(/^\d+ /, ''), a.streak ? 'hot' : '') +
-    stat('✍️', a.today, `${plural(a.today, 'ответ', 'ответа', 'ответов').replace(/^\d+ /, '')} сегодня`) +
-    stat('🏆', a.learned, plural(a.learned, 'слово выучено', 'слова выучено', 'слов выучено').replace(/^\d+ /, '')) +
+    stat(icon('flame'), a.streak, plural(a.streak, 'день подряд', 'дня подряд', 'дней подряд').replace(/^\d+ /, ''), a.streak ? 'hot' : '') +
+    stat(icon('pen'), a.today, `${plural(a.today, 'ответ', 'ответа', 'ответов').replace(/^\d+ /, '')} сегодня`) +
+    stat(icon('trophy'), a.learned, plural(a.learned, 'слово выучено', 'слова выучено', 'слов выучено').replace(/^\d+ /, '')) +
     '</section>';
 }
 
@@ -1054,10 +1070,10 @@ function renderHomeStats() {
 function todayBanner() {
   const n = core.dueCount();
   if (!n) {
-    return '<div class="today-banner calm"><span class="mode-icon">📅</span><span class="tile-text">' +
+    return `<div class="today-banner calm"><span class="mode-icon">${icon('calendar')}</span><span class="tile-text">` +
       '<b>На сегодня повторять нечего</b><small>Слова, которые вы учили, появятся здесь, когда придёт срок повторить</small></span></div>';
   }
-  return '<a class="today-banner" href="#/today"><span class="mode-icon">📅</span><span class="tile-text">' +
+  return `<a class="today-banner" href="#/today"><span class="mode-icon">${icon('calendar')}</span><span class="tile-text">` +
     `<b>Повторить сегодня: ${plural(n, 'слово', 'слова', 'слов')}</b><small>Из всех модулей, срок которых наступил</small></span>` +
     '<span class="today-go">Повторить →</span></a>';
 }
@@ -1065,17 +1081,17 @@ function todayBanner() {
 function renderToday() {
   const due = core.dueCards();
   const modules = new Set(due.map((x) => x.moduleId)).size;
-  const head = '<section class="module-head"><span class="lesson-icon module-icon">📅</span>' +
+  const head = `<section class="module-head">${lessonBadge('today', 'badge-lg')}` +
     `<div><h1>Повторить сегодня</h1><small>${due.length ? `${plural(due.length, 'слово', 'слова', 'слов')} из ${plural(modules, 'модуля', 'модулей', 'модулей')}` : 'всё повторено'}</small></div></section>`;
   if (!due.length) return `${head}<p class="empty">На сегодня всё повторено. Возвращайтесь завтра или учите новые модули.</p>`;
   const mode = (path, icon, title, sub) =>
     `<a class="mode-btn" data-mode="${path}" href="#/today/${path}"><span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span></a>`;
   return head + '<div class="modes">' +
-    mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
-    mode('learn', '🎯', 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
-    mode('test', '📋', 'Тест', 'Вопросы разных типов и оценка в конце') +
-    mode('match', '🧩', 'Подбор пар', 'Соединить термины с переводами на время') +
-    (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский') : '') +
+    mode('cards', icon('cards'), 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
+    mode('learn', icon('target'), 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
+    mode('test', icon('test'), 'Тест', 'Вопросы разных типов и оценка в конце') +
+    mode('match', icon('match'), 'Подбор пар', 'Соединить термины с переводами на время') +
+    (canType() ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы, диктант, перевод на английский') : '') +
     '</div>' +
     `<ol class="card-list">${due.map(({ card: c, moduleId }) =>
       `<li><span class="card-term">${escapeHtml(c.term)}<small class="card-module">${escapeHtml(lessonInfo(moduleId).title)}</small></span>` +
@@ -1128,7 +1144,7 @@ function renderModule(id) {
     : '';
   const hiddenNow = core.isHidden(id);
   const actions = '<div class="page-actions">' + (own
-    ? actionLink(`#/module/${id}/edit`, '✏️ Изменить') + actionLink(`#/import/module/${id}`, 'Импорт') +
+    ? actionLink(`#/module/${id}/edit`, `${icon('pen')} Изменить`) + actionLink(`#/import/module/${id}`, 'Импорт') +
       actionBtn('copy-module', 'Скопировать') + (id === 'mine' ? '' : actionBtn('delete-module', 'Удалить', 'danger'))
     : actionBtn('copy-module', 'Скопировать и изменить') +
       (hiddenNow ? actionBtn('show-module', 'Вернуть в папку') : actionBtn('hide-module', 'Скрыть'))) + '</div>';
@@ -1137,14 +1153,14 @@ function renderModule(id) {
     const inner = `<span class="mode-icon">${icon}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span>`;
     return cards.length ? `<a class="mode-btn" data-mode="${path}" href="#/module/${id}/${path}">${inner}</a>` : `<span class="mode-btn disabled" data-mode="${path}">${inner}</span>`;
   };
-  return `<section class="module-head"><span class="lesson-icon module-icon">${l.icon}</span>` +
+  return `<section class="module-head">${lessonBadge(id, 'badge-lg')}` +
     `<div><h1>${escapeHtml(l.title)}</h1><small>${lessonCount(id)}${statsLine}</small>${progressBar(stats)}</div>${actions}</section>${hiddenNote}` +
     '<div class="modes">' +
-    mode('cards', '🃏', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
-    mode('learn', '🎯', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
-    mode('test', '📋', 'Тест', 'Вопросы разных типов и оценка в конце') +
-    mode('match', '🧩', 'Подбор пар', 'Соединить термины с переводами на время') +
-    (canType() ? mode('type', '⌨️', 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
+    mode('cards', icon('cards'), 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»') +
+    mode('learn', icon('target'), 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
+    mode('test', icon('test'), 'Тест', 'Вопросы разных типов и оценка в конце') +
+    mode('match', icon('match'), 'Подбор пар', 'Соединить термины с переводами на время') +
+    (canType() ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
     `</div>${list}`;
 }
 
@@ -1172,7 +1188,7 @@ function flashSides(card) {
   const extra =
     (card.example ? `<div class="flash-example"><span>${escapeHtml(card.example)}</span>` +
       `${card.exampleTranslation ? `<small>${escapeHtml(card.exampleTranslation)}</small>` : ''}</div>` : '') +
-    (card.explanation ? `<div class="explain flash-explain"><span class="explain-icon">📘</span><div class="explain-body">${noteHtml(card.explanation)}</div></div>` : '');
+    (card.explanation ? `<div class="explain flash-explain"><span class="explain-icon">${icon('book')}</span><div class="explain-body">${noteHtml(card.explanation)}</div></div>` : '');
   return flashDir() === 'en-ru' ? { front: term, back: def, extra } : { front: def, back: term, extra };
 }
 
@@ -1211,7 +1227,7 @@ function renderFlash() {
     '</div></div>' +
     '<div class="flash-actions">' +
     '<button class="flash-btn no" data-act="flash-no">✗ Не знаю <kbd>←</kbd></button>' +
-    '<button class="flash-btn speak" data-act="flash-speak" title="Произнести">🔊</button>' +
+    `<button class="flash-btn speak" data-act="flash-speak" title="Произнести">${icon('volume')}</button>` +
     '<button class="flash-btn yes" data-act="flash-yes">✓ Знаю <kbd>→</kbd></button>' +
     '</div></div>';
 }
@@ -1352,7 +1368,7 @@ function renderLearn() {
   const q = s.question;
   const what = q.stage === 1 ? 'Выберите' : 'Напишите';
   const target = dir === 'en-ru' ? 'перевод' : 'по-английски';
-  const speakBtn = learnEnglish() ? '<button class="icon-btn" data-act="learn-speak" title="Произнести">🔊</button>' : '';
+  const speakBtn = learnEnglish() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '';
   let body;
   if (q.stage === 1) {
     body = '<div class="learn-choices">' + q.choices.map((c, i) => {
@@ -1627,7 +1643,7 @@ function renderMatch() {
     $('page-body').innerHTML = '<div class="flash"><div class="flash-done">' +
       `<h2>${secs(f.total)} с</h2>` +
       `<p>${f.mistakes ? `Игра ${secs(f.elapsed)} с + штраф ${f.mistakes} с (${plural(f.mistakes, 'ошибка', 'ошибки', 'ошибок')})` : 'Без ошибок!'}</p>` +
-      (match.deckId === 'today' ? '' : `<p>${f.record ? '🏆 Новый рекорд!' : recordText}</p>`) +
+      (match.deckId === 'today' ? '' : `<p>${f.record ? `${icon('trophy')} Новый рекорд!` : recordText}</p>`) +
       '<div class="page-actions"><button class="primary-btn" data-act="match-start">Ещё раз</button>' +
       `<a class="pill-btn" href="${deckHref(match.deckId)}">Назад</a></div></div></div>`;
     return;
@@ -1787,7 +1803,7 @@ async function doImport() {
     await Promise.all(empty.map((c) => fillTranslation(moduleId, c.id, c.term)));
   }
   location.hash = `#/module/${moduleId}`;
-  toast(`Импортировано: ${plural(added.length, 'карточка', 'карточки', 'карточек')}`, '📥');
+  toast(`Импортировано: ${plural(added.length, 'карточка', 'карточки', 'карточек')}`, 'download');
 }
 
 // Строка карточки в редакторе. Без карточки — пустая строка внизу для новой
@@ -1926,7 +1942,7 @@ function openTrainer(id) {
   state.lessonId = id;
   if (!SPECIAL[id]) core.markOpened(id);
   const l = lessonInfo(id);
-  $('lesson-icon').textContent = l.icon;
+  $('lesson-icon').innerHTML = lessonBadge(id);
   $('lesson-group').textContent = l.group ? folderOf(l.group).title : 'Повторение';
   $('lesson-title').textContent = l.title;
   $('back').href = id === 'custom' ? '#/' : deckHref(id);
@@ -2040,7 +2056,7 @@ function onPageAction(e) {
     onMatchAction(act, btn);
   } else if (act === 'new-folder') {
     const name = prompt('Название новой папки');
-    if (name && name.trim()) { location.hash = `#/folder/${core.createFolder(name).id}`; toast('Папка создана', '🗂️'); }
+    if (name && name.trim()) { location.hash = `#/folder/${core.createFolder(name).id}`; toast('Папка создана', 'folder'); }
   } else if (act === 'rename-folder') {
     const name = prompt('Новое название папки', folderOf(r.id).title);
     if (name && name.trim()) { core.renameFolder(r.id, name); route(); }
@@ -2049,24 +2065,24 @@ function onPageAction(e) {
     if (n && !confirm(`Удалить папку «${folderOf(r.id).title}» и ${plural(n, 'модуль', 'модуля', 'модулей')} в ней?`)) return;
     core.deleteFolder(r.id);
     location.hash = '#/';
-    toast('Папка удалена', '🗑️');
+    toast('Папка удалена', 'trash');
   } else if (act === 'delete-module') {
     const l = lessonInfo(r.id);
     if (!confirm(`Удалить модуль «${l.title}» со всеми карточками?`)) return;
     core.deleteModule(r.id);
     location.hash = `#/folder/${l.group}`;
-    toast('Модуль удалён', '🗑️');
+    toast('Модуль удалён', 'trash');
   } else if (act === 'copy-module') {
     location.hash = `#/module/${core.copyModule(r.id).id}/edit`;
-    toast('Копия создана — можно править', '📄');
+    toast('Копия создана — можно править', 'copy');
   } else if (act === 'hide-module') {
     core.hideModule(r.id);
     location.hash = `#/folder/${lessonInfo(r.id).group}`;
-    toast('Модуль скрыт — он внизу папки', '🙈');
+    toast('Модуль скрыт — он внизу папки', 'eye-off');
   } else if (act === 'show-module') {
     core.showModule(r.id);
     route();
-    toast('Модуль снова в папке', '👀');
+    toast('Модуль снова в папке', 'eye');
   } else if (act === 'import-go') {
     doImport();
   } else if (act.startsWith('card-')) {
@@ -2117,7 +2133,7 @@ function speak() {
 }
 
 // В режиме «Перевод» озвучка выключена целиком: переключатель «Озвучка» неактивен
-// и показан выключенным (сохранённое значение не трогаем), кнопка 🔊 скрыта
+// и показан выключенным (сохранённое значение не трогаем), кнопка озвучки скрыта
 function syncVoiceUi() {
   const tr = translateMode();
   const box = $('auto-read');
@@ -2222,7 +2238,7 @@ function toggleKeyboard(show) {
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   for (const btn of document.querySelectorAll('.theme-btn')) {
-    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    btn.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
     btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   }
 }
@@ -2292,7 +2308,7 @@ function renderAccount() {
     el.innerHTML = '<button class="pill-btn" data-act="sign-in">Войти через Google</button>';
     return;
   }
-  el.innerHTML = `<span class="account-email" title="Данные хранятся в облаке">☁ ${escapeHtml(cloud.user.email || '')}</span>` +
+  el.innerHTML = `<span class="account-email" title="Данные хранятся в облаке">${icon('cloud')} ${escapeHtml(cloud.user.email || '')}</span>` +
     '<span id="sync-status" class="sync-status"></span>' +
     '<button class="pill-btn" data-act="sign-out">Выйти</button>';
 }
@@ -2306,11 +2322,11 @@ function showCloudBanner(html) {
 // Состояние отправки в облако: «сохраняю…», «сохранено» или ошибка с кнопкой «Повторить»
 function onCloudStatus(status) {
   const el = $('sync-status');
-  if (el) el.textContent = { pending: '…', saving: 'сохраняю…', saved: '✓ сохранено', error: '⚠ не сохранено' }[status];
+  if (el) el.textContent = { pending: '…', saving: 'сохраняю…', saved: '✓ сохранено', error: 'не сохранено' }[status];
   clearTimeout(cloud.retryTimer);
   if (status === 'error') {
-    showCloudBanner('<span>⚠ Нет связи с облаком — изменения пока только на этом устройстве. ' +
-      'Если сервер «заснул», его будят в панели Supabase.</span><button class="pill-btn" data-act="cloud-retry">Повторить</button>');
+    showCloudBanner(`${icon('alert')}<span>Нет связи с облаком — изменения пока только на этом устройстве. ' +
+      'Если сервер «заснул», его будят в панели Supabase.</span><button class="pill-btn" data-act="cloud-retry">Повторить</button>`);
     cloud.retryTimer = setTimeout(() => cloud.storage.flush(), 15000);
   } else if (status === 'saved') {
     showCloudBanner('');
@@ -2321,7 +2337,7 @@ function onCloudStatus(status) {
 function showStartupCloudError() {
   if (!cloud.error) return;
   const signedIn = cloud.user && !cloud.storage;
-  showCloudBanner(`<span>⚠ ${signedIn ? 'Не удалось загрузить данные из облака' : 'Вход не удался'}: ${escapeHtml(cloud.error.message)}. ` +
+  showCloudBanner(`${icon('alert')}<span>${signedIn ? 'Не удалось загрузить данные из облака' : 'Вход не удался'}: ${escapeHtml(cloud.error.message)}. ` +
     'Сейчас открыты данные этого браузера.</span><button class="pill-btn" data-act="cloud-reload">Повторить</button>');
 }
 
@@ -2341,6 +2357,8 @@ function initCloud() {
 }
 
 function init() {
+  // значки в разметке index.html: <button data-icon="volume">
+  for (const el of document.querySelectorAll('[data-icon]')) el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon));
   buildKeyboard();
   initWordTools();
   initVoice();

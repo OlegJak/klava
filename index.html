@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="style.css?v=47">
+  <link rel="stylesheet" href="style.css?v=49">
 </head>
 <body>
   <!-- Экраны-страницы: главная, папка, модуль. Содержимое рисует app.js по адресу после # -->
@@ -44,7 +44,7 @@
       <div id="text" class="text" aria-live="polite"></div>
       <div class="hint">
         <span id="translation" class="translation"></span>
-        <button id="speak" class="icon-btn" title="Произнести (Ctrl+Space)">🔊</button>
+        <button id="speak" class="icon-btn" title="Произнести (Ctrl+Space)" data-icon="volume"></button>
       </div>
       <div id="explain" class="explain" hidden></div>
       <div id="lookup" class="lookup" hidden></div>
@@ -100,7 +100,7 @@
         <div id="voice-box" class="voice-card">
           <div class="voice-head">
             <b>Голос</b>
-            <button id="voice-test" class="pill-btn" title="Произнести текущую фразу">▶ Проверить</button>
+            <button id="voice-test" class="pill-btn" title="Произнести текущую фразу" data-icon="play"> Проверить</button>
           </div>
           <select id="voice" aria-label="Голос озвучки"></select>
           <label class="rate">Скорость
@@ -115,7 +115,7 @@
 
   <div id="word-tools" class="word-tools" hidden>
     <b class="wt-text"></b>
-    <button data-act="speak" title="Произнести">🔊</button>
+    <button data-act="speak" title="Произнести" data-icon="volume"></button>
     <button data-act="add">+ В словарь</button>
     <button data-act="more">Ещё фразы</button>
   </div>
@@ -138,6 +138,7 @@
   <script src="data.js?v=31"></script>
   <script src="core.js?v=13"></script>
   <script src="cloud.js?v=1"></script>
-  <script src="app.js?v=49"></script>
+  <script src="icons.js?v=1"></script>
+  <script src="app.js?v=50"></script>
 </body>
 </html>
