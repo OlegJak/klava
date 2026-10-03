@@ -2348,13 +2348,11 @@ const renumberCards = () => $('edit-cards').querySelectorAll('.edit-card').forEa
   r.querySelector('.edit-num').textContent = i + 1;
 });
 
-// «+ Добавить карточку» и Enter в определении: пустая карточка в конце, курсор — в термин.
-// Если последняя карточка ещё пустая, просто переходим в неё
+// «+ Добавить карточку» и Enter в определении: каждый раз новая пустая карточка в конце, курсор — в её термин.
+// Пустые карточки не сохраняются: уйдёте со страницы — их не станет
 function addCardRow() {
   const list = $('edit-cards');
-  const last = list.lastElementChild;
-  const lastEmpty = last?.classList.contains('draft') && !last.querySelector('[data-field="term"]').value.trim();
-  if (!lastEmpty) list.insertAdjacentHTML('beforeend', editCardRow(null, list.children.length));
+  list.insertAdjacentHTML('beforeend', editCardRow(null, list.children.length));
   const row = list.lastElementChild;
   row.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' });
   row.querySelector('[data-field="term"]').focus({ preventScroll: true });
@@ -2369,7 +2367,7 @@ function renderEditModule(id) {
     `<label class="field"><span>Папка</span>${folderSelect('edit-folder', m.folderId)}</label>` +
     langFields('edit', m.langs || DEFAULT_LANGS) +
     '<div class="edit-cards-head"><h2 class="edit-cards-title">Карточки</h2>' +
-    '<small>Карточка сохраняется, когда введён термин. Если языки сторон разные, перевод подставится сам</small></div>' +
+    '<small>Карточка сохраняется, когда введён термин; пустые карточки не сохраняются. Если языки сторон разные, перевод подставится сам</small></div>' +
     `<ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol>` +
     `<button type="button" class="add-card" data-act="card-add">${icon('plus')}Добавить карточку<kbd>Enter</kbd></button></div>`;
 }
