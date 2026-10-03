@@ -377,26 +377,105 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
   text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
 }
 .edit-cards { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+/* Карточка в редакторе — как у Quizlet: шапка (номер, ручка, корзина), крупные поля, квадрат картинки */
 .edit-card {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 12px;
+  display: flex; flex-direction: column;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  transition: box-shadow .15s, transform .15s;
 }
-.edit-card.new { border-style: dashed; }
-.edit-num { flex: none; width: 22px; padding-top: 24px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.edit-fields { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.edit-main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.edit-card details { display: flex; flex-direction: column; gap: 8px; }
-.edit-card details[open] { display: flex; }
-.edit-card summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-.edit-card details .field { margin-top: 8px; }
-.edit-hint { color: var(--muted); font-size: 12px; }
-.edit-tools { flex: none; width: 32px; display: flex; flex-direction: column; align-items: center; padding-top: 18px; }
-.edit-tools .icon-btn { font-size: 15px; color: var(--muted); }
-.edit-tools .icon-btn:hover { color: var(--accent); }
-.edit-tools [data-act="card-delete"]:hover { color: var(--bad); }
+.edit-card-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px 10px 20px;
+  border-bottom: 2px solid var(--bg);
+}
+.edit-num { font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.edit-num .i { width: 18px; height: 18px; vertical-align: -.25em; }
+.edit-hint { color: var(--muted); font-size: 13px; }
+.edit-tools { margin-left: auto; display: flex; gap: 2px; }
+.edit-tools .icon-btn { color: var(--muted); border-radius: 8px; padding: 6px; }
+.edit-tools .icon-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.edit-tools [data-act="card-delete"]:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.drag-handle { cursor: grab; touch-action: none; }
+.edit-card.dragging { position: relative; z-index: 5; transform: scale(1.015); box-shadow: var(--shadow-hover); border-color: var(--accent); }
+.edit-card.dragging .drag-handle { cursor: grabbing; }
+
+.edit-card-body { display: flex; gap: 20px; align-items: flex-start; padding: 18px 20px 6px; }
+.edit-main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; min-width: 0; }
+/* Крупное поле: линия снизу, подпись под ней */
+.field.big { display: flex; flex-direction: column; gap: 6px; }
+.field.big > span { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.field.big input, .field.big textarea {
+  padding: 8px 2px; font-size: 17px;
+  background: transparent;
+  border: none; border-bottom: 2px solid var(--text); border-radius: 0;
+}
+.field.big input:focus, .field.big textarea:focus { box-shadow: none; border-bottom-color: var(--m-test); }
+.field.big:focus-within > span { color: var(--text); }
+
+.image-box {
+  flex: none; position: relative;
+  width: 96px; height: 76px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: var(--muted); font-size: 12px; font-weight: 700;
+  border: 2px dashed var(--line); border-radius: 10px;
+  cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+}
+.image-box .i { width: 22px; height: 22px; }
+.image-box:hover, .image-box.drop, .image-box:focus-visible { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); outline: none; }
+.image-box.has-image { border: none; padding: 0; overflow: hidden; }
+.image-box img { width: 100%; height: 100%; object-fit: cover; }
+.image-remove {
+  position: absolute; top: 4px; right: 4px;
+  width: 24px; height: 24px; padding: 0; display: grid; place-items: center;
+  color: #fff; background: rgb(0 0 0 / .55); border: none; border-radius: 50%;
+  opacity: 0; transition: opacity .15s;
+}
+.image-remove .i { width: 14px; height: 14px; }
+.image-box:hover .image-remove { opacity: 1; }
+@media (hover: none) { .image-remove { opacity: 1; } }
+
+.edit-more { padding: 6px 20px 16px; }
+.edit-more summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); padding: 6px 0; }
+.edit-more summary:hover { color: var(--accent); }
+.edit-more[open] { display: flex; flex-direction: column; gap: 14px; }
+.edit-more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+/* Пустая карточка внизу: инструменты, картинка и «ещё» появятся, когда введёте термин */
+.edit-card.new .edit-tools, .edit-card.new .image-box, .edit-card.new .edit-more { visibility: hidden; }
+.edit-card.new .edit-more { display: none; }
+
+/* Список терминов на странице модуля */
+.terms-title { margin: 28px 0 12px; font-size: 20px; font-weight: 800; }
+.term-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.term-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 14px 14px 20px;
+  background: var(--panel); border-radius: 14px; box-shadow: var(--shadow);
+  border: 2px solid transparent;
+  transition: border-color .15s;
+}
+.term-row.starred { border-color: color-mix(in srgb, var(--m-test) 70%, transparent); }
+.term-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; min-width: 0; }
+.term-term { padding-right: 18px; font-size: 16px; font-weight: 600; display: flex; align-items: baseline; gap: 10px; }
+.term-term .card-dot { flex: none; align-self: center; }
+.term-def { padding-left: 18px; border-left: 2px solid var(--line); color: var(--text); }
+.term-img { width: 64px; height: 48px; flex: none; }
+.term-img img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+.term-tools { display: flex; gap: 2px; flex: none; }
+.term-tools .icon-btn { color: var(--muted); border-radius: 8px; padding: 6px; }
+.term-tools .icon-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.term-row .star-btn:hover, .term-row.starred .star-btn { color: #e8a800; }
+.term-row.editing .term-body { gap: 16px; }
+.term-input { font-size: 16px; padding: 6px 2px; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; background: transparent; }
+.term-input:focus { box-shadow: none; }
+.study-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -8px 0 8px; color: var(--muted); font-size: 14px; }
+.study-filter .seg-btn .i { width: 14px; height: 14px; vertical-align: -.15em; color: #e8a800; }
+.study-filter .seg-btn.on .i { color: #fff; }
+
+/* Картинка на обороте карточки и в разборе ответа */
+.card-img { max-width: min(320px, 80%); max-height: 180px; object-fit: contain; border-radius: 12px; }
 
 /* Импорт */
 .form fieldset {
@@ -781,6 +860,7 @@ button { border-radius: 8px; font-weight: 600; }
 .match-tile.selected { border-color: var(--accent); }
 
 .edit-card.new { border: 2px dashed var(--line); box-shadow: none; background: transparent; }
+.edit-card.new .edit-card-head { border-bottom-color: transparent; }
 
 /* ---------- Значки и плашки модулей ---------- */
 .i { width: 1.15em; height: 1.15em; flex: none; vertical-align: -.2em; }
@@ -926,7 +1006,15 @@ button:active:not(:disabled), .tile:active, .mode-btn:active, a.pill-btn:active 
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
   .card-list.with-dots li { grid-template-columns: 10px 1fr; column-gap: 10px; }
   .card-list.with-dots .card-def { grid-column: 2; }
-  .edit-main { grid-template-columns: 1fr; }
+  .edit-main, .edit-more-grid { grid-template-columns: 1fr; gap: 16px; }
+  .edit-card-body { flex-direction: column; align-items: stretch; padding: 14px 16px 4px; }
+  .image-box { width: 100%; height: 56px; flex-direction: row; }
+  .image-box.has-image { height: 140px; }
+  .edit-more { padding: 4px 16px 14px; }
+  .term-row { flex-wrap: wrap; padding: 12px 12px 12px 16px; gap: 8px; }
+  .term-body { grid-template-columns: 1fr; gap: 4px; flex-basis: calc(100% - 120px); }
+  .term-def { padding-left: 0; border-left: none; color: var(--muted); }
+  .term-term { padding-right: 0; }
   .imp-seps { grid-template-columns: 1fr; }
   /* Карточки одной рукой: карточка заполняет экран, кнопки — внизу под большим пальцем */
   .flash { margin-top: 8px; }

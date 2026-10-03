@@ -17,14 +17,15 @@
     };
   }
 
-  // Браузерное хранилище: getLocal возвращает localStorage (в некоторых браузерах обращение к нему бросает ошибку)
-  function browserStorage(getLocal, prefix) {
+  // Браузерное хранилище: getLocal возвращает localStorage (в некоторых браузерах обращение к нему бросает ошибку).
+  // onError(key, error) — запись не удалась, например кончилось место
+  function browserStorage(getLocal, prefix, onError = () => {}) {
     return {
       get(key, def) {
         try { return JSON.parse(getLocal().getItem(prefix + key)) ?? def; } catch { return def; }
       },
       set(key, val) {
-        try { getLocal().setItem(prefix + key, JSON.stringify(val)); } catch {}
+        try { getLocal().setItem(prefix + key, JSON.stringify(val)); } catch (e) { onError(key, e); }
       },
     };
   }
@@ -70,7 +71,7 @@
   };
 
   // Поля карточки: термин и определение есть всегда, пустые необязательные поля не хранятся
-  const OPTIONAL = ['example', 'exampleTranslation', 'explanation'];
+  const OPTIONAL = ['example', 'exampleTranslation', 'explanation', 'image'];
   function applyCardFields(card, fields) {
     if ('term' in fields) {
       card.term = String(fields.term ?? '').trim();
@@ -275,6 +276,21 @@
       },
       // Ждёт повторения: срок хотя бы одного направления наступил
       isDue: (cardId) => isDueIn(loadProgress(), cardId, today()),
+
+      // Отметки ★ — список id карточек под ключом starred
+      isStarred: (cardId) => storage.get('starred', []).includes(cardId),
+      // Переключить отметку; вернёт новое состояние
+      toggleStar(cardId) {
+        const list = storage.get('starred', []);
+        const on = !list.includes(cardId);
+        storage.set('starred', on ? [...list, cardId] : list.filter((id) => id !== cardId));
+        return on;
+      },
+      // Отмеченные карточки модуля, в порядке модуля
+      starredCards(moduleId) {
+        const set = new Set(storage.get('starred', []));
+        return (findModule(moduleId)?.cards || []).filter((c) => set.has(c.id));
+      },
       // total — карточек, seen — встречено, learned — выучено (оба направления в коробке 3+), due — ждут повторения
       moduleStats(moduleId) {
         const states = Object.values(cardStates(moduleId));

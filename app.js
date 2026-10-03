@@ -67,7 +67,8 @@ const shuffle = (arr) => {
 // Хранилище переключаемое: гость работает с браузером, после входа — с Supabase (см. connectCloud)
 const { normalize, compareDictation } = KlavaCore;
 const storage = {
-  backend: KlavaCore.browserStorage(() => localStorage, 'klava:'),
+  backend: KlavaCore.browserStorage(() => localStorage, 'klava:',
+    () => toast('Не хватает места в браузере — изменение не сохранилось. Уберите лишние картинки или войдите, чтобы хранить в облаке', 'alert')),
   get: (key, def) => storage.backend.get(key, def),
   set: (key, val) => storage.backend.set(key, val),
 };
@@ -928,7 +929,11 @@ const SPECIAL = {
 };
 
 // Колода для режимов: карточки модуля или очередь «Сегодня» (id 'today') — слова всех модулей, срок которых наступил
-const deckCards = (id) => (id === 'today' ? core.dueCards().map((x) => x.card) : core.module(id).cards);
+function deckCards(id) {
+  if (id === 'today') return core.dueCards().map((x) => x.card);
+  const starred = starredOnly(id) ? core.starredCards(id) : [];
+  return starred.length ? starred : core.module(id).cards;
+}
 const deckHref = (id) => (id === 'today' ? '#/today' : `#/module/${id}`);
 // Порядок на главной: сначала свои папки, потом встроенные (системная «Своё» — последняя из них)
 const allFolders = () => {
@@ -1119,6 +1124,78 @@ function renderFolder(folderId) {
       `<div class="tiles">${hiddenIds.map(lessonTile).join('')}</div></details>` : '');
 }
 
+// Строка термина на странице модуля: точка состояния, термин | определение, картинка;
+// справа — отметить ★, проговорить и (в своих модулях) править на месте
+const STATE_TITLE = { new: 'Новая', learning: 'Изучается', learned: 'Выучена' };
+// withImages — в модуле есть картинки: место под них оставляем во всех строках, чтобы колонки совпадали
+function termRow(c, st, own, editing = false, withImages = false) {
+  const star = core.isStarred(c.id);
+  const dot = `<span class="card-dot ${st.state}${st.due ? ' due' : ''}" title="${STATE_TITLE[st.state]}${st.due ? ' · пора повторить' : ''}"></span>`;
+  const body = editing
+    ? `<input class="term-input" data-term-field="term" value="${escapeAttr(c.term)}" aria-label="Термин">` +
+      `<input class="term-input" data-term-field="definition" value="${escapeAttr(c.definition || '')}" aria-label="Определение">`
+    : `<span class="term-term">${dot}${escapeHtml(c.term)}</span><span class="term-def">${escapeHtml(c.definition || '—')}</span>`;
+  return `<li class="term-row${star ? ' starred' : ''}${editing ? ' editing' : ''}" data-card="${escapeAttr(c.id)}">` +
+    `<div class="term-body">${body}</div>` +
+    (withImages ? `<span class="term-img">${c.image ? `<img src="${escapeAttr(c.image)}" alt="">` : ''}</span>` : '') +
+    '<div class="term-tools">' +
+    `<button class="icon-btn star-btn" data-act="term-star" title="${star ? 'Снять отметку' : 'Отметить'}">${icon(star ? 'star-fill' : 'star')}</button>` +
+    `<button class="icon-btn" data-act="term-speak" title="Произнести">${icon('volume')}</button>` +
+    (own ? `<button class="icon-btn" data-act="term-edit" title="${editing ? 'Готово' : 'Изменить'}">${icon(editing ? 'check' : 'pen')}</button>` : '') +
+    '</div></li>';
+}
+
+// Что учить в режимах: все карточки или только отмеченные ★
+const starredOnly = (id) => Boolean(store.get('starred-only', {})[id]);
+function studyFilter(id, total, starred) {
+  if (!starred) return '';
+  const only = starredOnly(id);
+  const seg = (value, label) => `<button class="seg-btn${only === value ? ' on' : ''}" data-act="study-filter" data-only="${value}">${label}</button>`;
+  return `<div class="study-filter"><span>Учить в режимах:</span><div class="seg">${seg(false, `Все (${total})`)}${seg(true, `${icon('star-fill')} Отмеченные (${starred})`)}</div></div>`;
+}
+
+// ---------- Действия в списке терминов ----------
+function redrawTermRow(row, editing = false) {
+  const moduleId = parseRoute().id;
+  const card = core.module(moduleId).cards.find((c) => c.id === row.dataset.card);
+  const cards = core.module(moduleId).cards;
+  row.outerHTML = termRow(card, core.cardStates(moduleId)[card.id], isOwnModule(moduleId), editing, cards.some((x) => x.image));
+  return $('page-body').querySelector(`.term-row[data-card="${CSS.escape(card.id)}"]`);
+}
+
+function refreshStudyFilter(moduleId) {
+  const box = $('study-filter');
+  if (box) box.innerHTML = studyFilter(moduleId, core.module(moduleId).cards.length, core.starredCards(moduleId).length);
+}
+
+function onTermAction(act, row) {
+  const moduleId = parseRoute().id;
+  const card = core.module(moduleId).cards.find((c) => c.id === row.dataset.card);
+  if (act === 'term-speak') speakText(card.term);
+  else if (act === 'term-star') {
+    const on = core.toggleStar(card.id);
+    redrawTermRow(row, row.classList.contains('editing'));
+    refreshStudyFilter(moduleId);
+    toast(on ? 'Отмечено' : 'Отметка снята', on ? 'star-fill' : 'star');
+  } else if (act === 'term-edit') {
+    const editing = !row.classList.contains('editing');
+    const fresh = redrawTermRow(row, editing);
+    if (editing) fresh.querySelector('.term-input').focus();
+  }
+}
+
+// Правка на месте: каждое поле сохраняется при выходе из него, Enter — закончить
+function onTermInput(e) {
+  const input = e.target.closest('.term-input');
+  if (!input) return;
+  const row = input.closest('.term-row');
+  const moduleId = parseRoute().id;
+  const field = input.dataset.termField;
+  const card = core.module(moduleId).cards.find((c) => c.id === row.dataset.card);
+  if (field === 'term' && !input.value.trim()) { input.value = card.term; return; }
+  core.updateCard(moduleId, card.id, { [field]: input.value });
+}
+
 function renderModule(id) {
   const l = lessonInfo(id);
   const cards = lessonCards(id);
@@ -1126,16 +1203,11 @@ function renderModule(id) {
   const emptyText = id === 'mine'
     ? 'Пока пусто. Во время набора нажмите Ctrl на слове, а затем Ctrl ещё раз — оно сохранится сюда.'
     : 'В модуле пока нет карточек.';
-  // у каждой карточки — точка состояния: новая, изучается, выучена; рамка — пора повторить
   const states = core.cardStates(id);
-  const stateTitle = { new: 'Новая', learning: 'Изучается', learned: 'Выучена' };
-  const dot = (c) => {
-    const st = states[c.id];
-    return `<span class="card-dot ${st.state}${st.due ? ' due' : ''}" title="${stateTitle[st.state]}${st.due ? ' · пора повторить' : ''}"></span>`;
-  };
+  const starred = core.starredCards(id).length;
   const list = cards.length
-    ? `<ol class="card-list with-dots">${cards.map((c) =>
-      `<li>${dot(c)}<span class="card-term">${escapeHtml(c.term)}</span><span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`
+    ? `<h2 class="terms-title">Термины в модуле (${cards.length})</h2>` +
+      `<ol class="term-list">${cards.map((c) => termRow(c, states[c.id], own, false, cards.some((x) => x.image))).join('')}</ol>`
     : `<p class="empty">${emptyText}</p>`;
   const stats = core.moduleStats(id);
   const statsLine = stats.seen
@@ -1161,7 +1233,7 @@ function renderModule(id) {
     mode('test', icon('test'), 'Тест', 'Вопросы разных типов и оценка в конце') +
     mode('match', icon('match'), 'Подбор пар', 'Соединить термины с переводами на время') +
     (canType() ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
-    `</div>${list}`;
+    `</div><div id="study-filter">${studyFilter(id, cards.length, starred)}</div>${list}`;
 }
 
 // Режимы набора нужны физической клавиатуре: на сенсорном экране без мыши их не показываем
@@ -1186,6 +1258,7 @@ function flashSides(card) {
   const term = escapeHtml(card.term);
   const def = escapeHtml(card.definition || '—');
   const extra =
+    (card.image ? `<img class="card-img" src="${escapeAttr(card.image)}" alt="">` : '') +
     (card.example ? `<div class="flash-example"><span>${escapeHtml(card.example)}</span>` +
       `${card.exampleTranslation ? `<small>${escapeHtml(card.exampleTranslation)}</small>` : ''}</div>` : '') +
     (card.explanation ? `<div class="explain flash-explain"><span class="explain-icon">${icon('book')}</span><div class="explain-body">${noteHtml(card.explanation)}</div></div>` : '');
@@ -1277,7 +1350,7 @@ function initFlashSwipe() {
     const card = e.target.closest('.flash-card');
     if (!card || flashcards.busy) return;
     Object.assign(swipe, { x: e.clientX, dx: 0, active: true, moved: false });
-    card.setPointerCapture(e.pointerId);
+    try { card.setPointerCapture(e.pointerId); } catch {}
   });
   body.addEventListener('pointermove', (e) => {
     if (!swipe.active) return;
@@ -1808,28 +1881,34 @@ async function doImport() {
 
 // Строка карточки в редакторе. Без карточки — пустая строка внизу для новой
 // moveTo — свои модули, куда карточку можно перенести
+// Квадрат «Изображение»: картинка карточки или приглашение добавить
+const imageBox = (c) => (c?.image
+  ? `<div class="image-box has-image" data-act="card-image" title="Заменить картинку"><img src="${escapeAttr(c.image)}" alt="">` +
+    `<button class="image-remove" data-act="card-image-remove" title="Убрать картинку">${icon('x')}</button></div>`
+  : `<div class="image-box" data-act="card-image" tabindex="0" title="Выбрать файл, перетащить или вставить Ctrl+V">${icon('image')}<span>Изображение</span></div>`);
+
+// Карточка в редакторе. Без карточки — пустая внизу для новой: та же разметка, инструменты спрятаны,
+// чтобы после ввода термина строка стала карточкой на месте и фокус не сбился
 function editCardRow(c, i, moveTo = []) {
   const input = (field, label, value = '') =>
-    `<label class="field"><span>${label}</span><input data-field="${field}" value="${escapeAttr(value)}"></label>`;
-  const main = `<div class="edit-main">${input('term', 'Термин', c?.term)}${input('definition', 'Определение', c?.definition)}</div>`;
-  if (!c) {
-    return `<li class="edit-card new"><span class="edit-num">+</span><div class="edit-fields">${main}` +
-      '<small class="edit-hint">Введите термин — карточка сохранится сама, перевод подставится автоматически</small></div>' +
-      '<div class="edit-tools"></div></li>';
-  }
-  const hasMore = c.example || c.exampleTranslation || c.explanation;
-  return `<li class="edit-card" data-card="${escapeAttr(c.id)}"><span class="edit-num">${i + 1}</span>` +
-    `<div class="edit-fields">${main}` +
-    `<details${hasMore ? ' open' : ''}><summary>${moveTo.length ? 'Пример, объяснение, перенос' : 'Пример и объяснение'}</summary>` +
-    `${input('example', 'Пример', c.example)}${input('exampleTranslation', 'Перевод примера', c.exampleTranslation)}` +
-    `<label class="field"><span>Объяснение</span><textarea data-field="explanation" rows="2">${escapeHtml(c.explanation || '')}</textarea></label>` +
+    `<label class="field big"><input data-field="${field}" value="${escapeAttr(value)}" autocomplete="off"><span>${label}</span></label>`;
+  const hasMore = c && (c.example || c.exampleTranslation || c.explanation);
+  return `<li class="edit-card${c ? '' : ' new'}"${c ? ` data-card="${escapeAttr(c.id)}"` : ''}>` +
+    '<div class="edit-card-head">' +
+    `<span class="edit-num">${c ? i + 1 : icon('plus')}</span>` +
+    (c ? '' : '<small class="edit-hint">Введите термин — карточка сохранится сама, перевод подставится автоматически</small>') +
+    '<span class="edit-tools">' +
+    `<button class="icon-btn drag-handle" title="Перетащить">${icon('grip')}</button>` +
+    `<button class="icon-btn" data-act="card-delete" title="Удалить карточку">${icon('trash')}</button></span></div>` +
+    '<div class="edit-card-body">' +
+    `<div class="edit-main">${input('term', 'Термин', c?.term)}${input('definition', 'Определение', c?.definition)}</div>` +
+    `${imageBox(c)}</div>` +
+    `<details class="edit-more"${hasMore ? ' open' : ''}><summary>${moveTo.length ? 'Пример, объяснение, перенос' : 'Пример и объяснение'}</summary>` +
+    `<div class="edit-more-grid">${input('example', 'Пример', c?.example)}${input('exampleTranslation', 'Перевод примера', c?.exampleTranslation)}</div>` +
+    `<label class="field big"><textarea data-field="explanation" rows="2">${escapeHtml(c?.explanation || '')}</textarea><span>Объяснение</span></label>` +
     (moveTo.length ? '<label class="field"><span>Перенести в модуль</span><select data-move><option value="">—</option>' +
       `${moveTo.map((m) => `<option value="${escapeAttr(m.id)}">${escapeHtml(m.title)}</option>`).join('')}</select></label>` : '') +
-    '</details></div>' +
-    '<div class="edit-tools">' +
-    '<button class="icon-btn" data-act="card-up" title="Выше">↑</button>' +
-    '<button class="icon-btn" data-act="card-down" title="Ниже">↓</button>' +
-    '<button class="icon-btn" data-act="card-delete" title="Удалить карточку">✕</button></div></li>';
+    '</details></li>';
 }
 
 const moveTargets = (moduleId) => ownModules().filter((m) => m.id !== moduleId);
@@ -1975,14 +2054,10 @@ function fillTranslation(moduleId, cardId, term) {
 // Пустая строка внизу превращается в карточку на месте, без перерисовки:
 // фокус остаётся там, куда его перевёл пользователь
 function promoteNewRow(row, card, index) {
-  const tpl = document.createElement('template');
-  tpl.innerHTML = editCardRow(card, index, moveTargets(editorModule()));
-  const full = tpl.content.firstElementChild;
   row.classList.remove('new');
   row.dataset.card = card.id;
   row.querySelector('.edit-num').textContent = index + 1;
-  row.querySelector('.edit-hint').replaceWith(full.querySelector('details'));
-  row.querySelector('.edit-tools').replaceWith(full.querySelector('.edit-tools'));
+  row.querySelector('.edit-hint')?.remove();
   row.insertAdjacentHTML('afterend', editCardRow(null));
 }
 
@@ -2033,12 +2108,131 @@ function onEditorChange(e) {
 
 function onEditorCardAction(act, cardId) {
   const id = editorModule();
-  const i = core.module(id).cards.findIndex((c) => c.id === cardId);
-  if (act === 'card-up') core.moveCard(id, cardId, i - 1);
-  if (act === 'card-down') core.moveCard(id, cardId, i + 1);
-  if (act === 'card-delete') core.deleteCard(id, cardId);
-  $('edit-cards').innerHTML = editCardList(core.module(id));
-  if (act !== 'card-delete') cardRow(cardId)?.querySelector(`[data-act="${act}"]`)?.focus();
+  if (!cardId) return; // пустая строка для новой карточки
+  if (act === 'card-delete') {
+    core.deleteCard(id, cardId);
+    $('edit-cards').innerHTML = editCardList(core.module(id));
+  } else if (act === 'card-image') {
+    pickImage(id, cardId);
+  } else if (act === 'card-image-remove') {
+    core.updateCard(id, cardId, { image: '' });
+    refreshImageBox(id, cardId);
+  }
+}
+
+// ---------- Картинки карточек ----------
+// Картинку уменьшаем до 480 px по длинной стороне и сжимаем в WebP (около 20–40 КБ):
+// она хранится прямо в карточке — в браузере, а после входа — в облаке
+async function compressImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Не удалось открыть картинку'));
+      el.src = url;
+    });
+    const scale = Math.min(1, 480 / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    let quality = 0.8;
+    let data = canvas.toDataURL('image/webp', quality);
+    if (!data.startsWith('data:image/webp')) data = canvas.toDataURL('image/jpeg', quality); // браузер без WebP
+    while (data.length > 60000 && quality > 0.4) {
+      quality -= 0.1;
+      data = canvas.toDataURL(data.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg', quality);
+    }
+    return data;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function setCardImage(moduleId, cardId, file) {
+  if (!file || !file.type.startsWith('image/')) { toast('Это не картинка', 'alert'); return; }
+  try {
+    core.updateCard(moduleId, cardId, { image: await compressImage(file) });
+    refreshImageBox(moduleId, cardId);
+    toast('Картинка добавлена', 'image');
+  } catch (e) {
+    toast(e.message, 'alert');
+  }
+}
+
+function refreshImageBox(moduleId, cardId) {
+  const box = cardRow(cardId)?.querySelector('.image-box');
+  if (box) box.outerHTML = imageBox(core.module(moduleId).cards.find((c) => c.id === cardId));
+}
+
+function pickImage(moduleId, cardId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = () => setCardImage(moduleId, cardId, input.files[0]);
+  input.click();
+}
+
+// Картинку можно перетащить из папки на квадрат или вставить Ctrl+V, пока курсор в карточке
+function initImageInput() {
+  const body = $('page-body');
+  body.addEventListener('dragover', (e) => {
+    const box = e.target.closest('.edit-card[data-card] .image-box');
+    if (!box) return;
+    e.preventDefault();
+    box.classList.add('drop');
+  });
+  body.addEventListener('dragleave', (e) => e.target.closest('.image-box')?.classList.remove('drop'));
+  body.addEventListener('drop', (e) => {
+    const row = e.target.closest('.edit-card[data-card]');
+    if (!row || !e.target.closest('.image-box')) return;
+    e.preventDefault();
+    setCardImage(editorModule(), row.dataset.card, e.dataTransfer.files[0]);
+  });
+  document.addEventListener('paste', (e) => {
+    const row = document.activeElement?.closest?.('.edit-card[data-card]');
+    const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith('image/'));
+    if (!row || !file) return;
+    e.preventDefault();
+    setCardImage(editorModule(), row.dataset.card, file);
+  });
+}
+
+// ---------- Перетаскивание карточек в редакторе ----------
+// Тянем за ручку: карточка едет за указателем (мышь или палец), остальные расступаются; отпустили — порядок сохранён
+function initCardDrag() {
+  $('page-body').addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.edit-card[data-card] .drag-handle');
+    if (!handle) return;
+    e.preventDefault();
+    const row = handle.closest('.edit-card');
+    const list = row.parentElement;
+    const moduleId = editorModule();
+    const startIndex = [...list.querySelectorAll('.edit-card[data-card]')].indexOf(row);
+    row.classList.add('dragging');
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    const move = (ev) => {
+      const others = [...list.querySelectorAll('.edit-card[data-card]')].filter((r) => r !== row);
+      const before = others.find((r) => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+      list.insertBefore(row, before || list.querySelector('.edit-card.new'));
+      if (ev.clientY < 70) scrollBy(0, -14);
+      else if (ev.clientY > innerHeight - 70) scrollBy(0, 14);
+    };
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+      row.classList.remove('dragging');
+      const rows = [...list.querySelectorAll('.edit-card[data-card]')];
+      const index = rows.indexOf(row);
+      if (index !== startIndex) core.moveCard(moduleId, row.dataset.card, index);
+      rows.forEach((r, i) => { r.querySelector('.edit-num').textContent = i + 1; });
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+  });
 }
 
 function onPageAction(e) {
@@ -2052,6 +2246,12 @@ function onPageAction(e) {
     onLearnAction(act, btn);
   } else if (act.startsWith('test-')) {
     onTestAction(act);
+  } else if (act.startsWith('term-')) {
+    onTermAction(act, btn.closest('.term-row'));
+  } else if (act === 'study-filter') {
+    const only = store.get('starred-only', {});
+    store.set('starred-only', { ...only, [r.id]: btn.dataset.only === 'true' });
+    refreshStudyFilter(r.id);
   } else if (act.startsWith('match-')) {
     onMatchAction(act, btn);
   } else if (act === 'new-folder') {
@@ -2101,6 +2301,14 @@ function onNewModule(e) {
 
 function initPages() {
   initFlashSwipe();
+  $('page-body').addEventListener('change', onTermInput);
+  $('page-body').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !e.target.closest('.term-input')) return;
+    e.target.blur();
+    redrawTermRow(e.target.closest('.term-row'));
+  });
+  initCardDrag();
+  initImageInput();
   $('page-body').addEventListener('click', onPageAction);
   document.addEventListener('keydown', onFlashKey);
   document.addEventListener('keydown', onLearnKey);

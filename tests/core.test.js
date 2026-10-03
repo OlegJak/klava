@@ -220,6 +220,28 @@ test('карточки своего модуля: добавить, измени
   assert.deepEqual(core.module(m.id).cards, []);
 });
 
+test('картинка карточки: сохраняется и удаляется пустым значением', () => {
+  const core = makeCore();
+  const m = core.createModule({ title: 'Модуль', folderId: 'words' });
+  const c = core.addCard(m.id, { term: 'cat', image: 'data:image/webp;base64,AAA' });
+  assert.equal(core.module(m.id).cards[0].image, 'data:image/webp;base64,AAA');
+  core.updateCard(m.id, c.id, { image: '' });
+  assert.equal(core.module(m.id).cards[0].image, undefined);
+});
+
+test('отметки ★: включить, выключить, список отмеченных карточек модуля', () => {
+  const storage = memoryStorage();
+  const core = makeCore({ storage });
+  const [a, b] = core.module('basic').cards.map((c) => c.id);
+  assert.equal(core.isStarred(a), false);
+  assert.equal(core.toggleStar(a), true);
+  assert.equal(core.toggleStar(b), true);
+  assert.deepEqual(core.starredCards('basic').map((c) => c.id), [a, b]);
+  assert.equal(core.toggleStar(a), false);
+  assert.deepEqual(makeCore({ storage }).starredCards('basic').map((c) => c.id), [b]);
+  assert.deepEqual(core.starredCards('cond'), []);
+});
+
 test('у карточки обязателен термин', () => {
   const core = makeCore();
   const m = core.createModule({ title: 'Модуль', folderId: 'words' });
