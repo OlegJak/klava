@@ -2337,14 +2337,75 @@ function renderNewModule(folderId) {
 // #/import/module/<модуль> — дописать в свой модуль
 const ownModules = () => core.modules().filter((m) => !m.builtIn);
 
+// ---------- Перенос из Quizlet по ссылке ----------
+// Quizlet не отдаёт страницы чужим сайтам (проверка «я не робот», браузер не даёт читать чужие страницы),
+// поэтому слова забирает закладка-кнопка «В Klava»: её нажимают на открытой странице модуля Quizlet,
+// она собирает пары «термин — определение» и открывает Klava: #/import/quizlet/<данные>
+function quizletBookmarklet() {
+  const base = location.origin + location.pathname;
+  const code = '(()=>{const r=new Map;' +
+    "for(const t of document.querySelectorAll('.TermText')){let p=t.parentElement;" +
+    "while(p&&p.querySelectorAll('.TermText').length<2)p=p.parentElement;" +
+    "if(p&&!r.has(p))r.set(p,[...p.querySelectorAll('.TermText')].map(x=>x.innerText.trim()))}" +
+    'const c=[...r.values()].filter(v=>v.length===2);' +
+    "if(!c.length){alert('Klava: откройте страницу модуля на Quizlet и нажмите закладку ещё раз');return}" +
+    "const h=document.querySelector('h1');" +
+    "const t=(h?h.innerText:document.title.replace(/\\s*\\|\\s*Quizlet$/,'')).trim();" +
+    'const b=btoa(unescape(encodeURIComponent(JSON.stringify({t,c})))).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");' +
+    `window.open('${base}#/import/quizlet/'+b,'_blank')})()`;
+  return `javascript:${encodeURIComponent(code)}`;
+}
+
+// Данные из закладки: { t: название, c: [[термин, определение], …] } в base64url
+function readQuizletData(b64) {
+  try {
+    const d = JSON.parse(decodeURIComponent(escape(atob(b64.replace(/-/g, '+').replace(/_/g, '/')))));
+    return d && Array.isArray(d.c) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+// Подставить слова из Quizlet в форму импорта
+function fillFromQuizlet(d) {
+  const clean = (x) => String(x || '').replace(/\s*[\r\n\t]+\s*/g, ' ').trim();
+  const lines = d.c.map(([term, def]) => `${clean(term)}\t${clean(def)}`).filter((l) => l.trim());
+  $('imp-text').value = lines.join('\n');
+  document.querySelector('[name="imp-term"][value="tab"]').checked = true;
+  document.querySelector('[name="imp-card"][value="newline"]').checked = true;
+  const target = document.querySelector('[name="imp-target"][value="new"]');
+  if (target) target.checked = true;
+  $('imp-title').value = clean(d.t);
+  updateImportPreview();
+  toast(`Из Quizlet: ${plural(lines.length, 'карточка', 'карточки', 'карточек')} — выберите папку и нажмите «Импортировать»`, 'download');
+  $('imp-title').scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' });
+}
+
 function renderImport({ folderId, moduleId }) {
   const radio = (name, value, label, checked) =>
     `<label class="radio"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}><span>${label}</span></label>`;
   const own = ownModules();
   const toExisting = Boolean(moduleId);
   // Варианты «Куда» — блоками: поля варианта видны, только когда он выбран (см. .imp-option в style.css)
+  const step = (n, body) => `<li><span class="q-num">${n}</span><div>${body}</div></li>`;
   return '<div id="import-form" class="form">' +
     '<h1>Импорт карточек</h1>' +
+    // из Quizlet — закладкой «В Klava»
+    '<section class="form-card quizlet-card">' +
+    `<div class="q-head"><span class="q-icon">${icon('download')}</span><div><b>Перенос из Quizlet</b>` +
+    '<small>Один раз добавьте кнопку в закладки — дальше любой модуль переносится в два нажатия</small></div></div>' +
+    '<ol class="q-steps">' +
+    step(1, 'Перетащите эту кнопку на панель закладок браузера' +
+      `<a class="bookmarklet" href="${escapeAttr(quizletBookmarklet())}" data-act="q-bookmarklet" draggable="true">${icon('bookmark')}В Klava</a>` +
+      '<small>Панель закладок не видна? Нажмите Ctrl+Shift+B (на Mac — Cmd+Shift+B)</small>') +
+    step(2, 'Откройте модуль на Quizlet' +
+      '<span class="q-link"><input id="q-url" type="url" placeholder="Ссылка на модуль: https://quizlet.com/…" autocomplete="off">' +
+      `<button type="button" class="pill-btn" data-act="q-open">Открыть${icon('arrow')}</button></span>`) +
+    step(3, 'На странице модуля нажмите закладку «В Klava» — слова и название появятся здесь, останется выбрать папку') +
+    '</ol>' +
+    '<small class="q-mobile">На телефоне закладку добавить сложно — сделайте это на компьютере или вставьте список ниже</small>' +
+    '</section>' +
+    '<div class="or-divider"><span>или вставьте список</span></div>' +
     '<section class="form-card">' +
     '<label class="field"><span>Список</span><textarea id="imp-text" rows="7" ' +
     'placeholder="Каждая карточка на своей строке, термин и определение через Tab — так копируют Quizlet («Экспорт») и таблицы"></textarea></label>' +
@@ -2580,6 +2641,7 @@ function parseRoute() {
   }
   if (screen === 'new') return { screen, id: moduleFolders().some((f) => f.id === id) ? id : null };
   if (screen === 'import') {
+    if (id === 'quizlet') return { screen, quizlet: mode || '' };
     return {
       screen,
       folderId: id === 'folder' && moduleFolders().some((f) => f.id === mode) ? mode : null,
@@ -2655,7 +2717,13 @@ function route() {
   } else if (r.screen === 'import') {
     renderCrumbs([[null, 'Импорт']]);
     $('page-body').innerHTML = renderImport(r);
-    $('imp-text').focus();
+    if (r.quizlet !== undefined) {
+      // данные пришли из закладки: подставляем и убираем их из адреса
+      history.replaceState(null, '', '#/import');
+      const data = readQuizletData(r.quizlet);
+      if (data) fillFromQuizlet(data);
+      else toast('Не удалось прочитать слова из Quizlet — попробуйте ещё раз', 'alert');
+    } else $('imp-text').focus();
   } else if (r.screen === 'new') {
     renderCrumbs([[null, 'Новый модуль']]);
     $('page-body').innerHTML = renderNewModule(r.id);
@@ -3093,6 +3161,13 @@ function onPageAction(e) {
   const r = parseRoute();
   if (act === 'voice-settings') {
     openVoiceDialog();
+  } else if (act === 'q-bookmarklet') {
+    e.preventDefault(); // здесь кнопка не работает — её место на панели закладок
+    toast('Перетащите кнопку «В Klava» на панель закладок, а нажимайте её на странице модуля Quizlet', 'bookmark');
+  } else if (act === 'q-open') {
+    const url = $('q-url').value.trim();
+    if (!/^https?:\/\/([a-z0-9-]+\.)*quizlet\.com\//i.test(url)) { toast('Вставьте ссылку на модуль Quizlet: https://quizlet.com/…', 'alert'); return; }
+    window.open(url, '_blank', 'noopener');
   } else if (act.startsWith('flash-')) {
     onFlashAction(act, btn);
   } else if (act.startsWith('learn-')) {
