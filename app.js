@@ -115,10 +115,11 @@ function dirLabels(deckId) {
 const langSelect = (id, value) => `<select id="${id}">${Object.entries(LANGS).map(([code, l]) =>
   `<option value="${code}"${code === value ? ' selected' : ''}>${l.name}</option>`).join('')}</select>`;
 // Выбор языков сторон в формах модуля; prefix — начало id полей
-const langFields = (prefix, langs) => '<div class="lang-fields">' +
-  `<label class="field"><span>Язык терминов</span>${langSelect(`${prefix}-term-lang`, langs.term)}</label>` +
-  `<label class="field"><span>Язык определений</span>${langSelect(`${prefix}-def-lang`, langs.definition)}</label>` +
-  '<small class="lang-hint">Для терминов вроде «Коленвал — вал двигателя, который…» выберите один язык с обеих сторон</small></div>';
+const langFields = (prefix, langs) => '<div class="lang-fields"><span class="lang-title">Языки</span><div class="lang-pair">' +
+  `<label class="lang-side"><small>Термин</small>${langSelect(`${prefix}-term-lang`, langs.term)}</label>` +
+  `<span class="lang-arrow">${icon('arrow')}</span>` +
+  `<label class="lang-side"><small>Определение</small>${langSelect(`${prefix}-def-lang`, langs.definition)}</label></div>` +
+  `<small class="lang-hint">${icon('book')}<span>Термины вроде «Коленвал — вал двигателя, который…» — выберите один язык с обеих сторон</span></small></div>`;
 const readLangs = (prefix) => ({ term: $(`${prefix}-term-lang`).value, definition: $(`${prefix}-def-lang`).value });
 
 // Каждый фрагмент: { text, parts: [{ from, to, tr }] } — части нужны для перевода текущего слова
@@ -1069,6 +1070,40 @@ function toast(text, iconName = 'check') {
   setTimeout(() => el.remove(), 2800);
 }
 
+// ---------- Окна вопросов вместо prompt и confirm браузера ----------
+// openDialog → Promise: с полем ввода — введённый текст или null, без поля — true / false
+function openDialog({ title, text = '', input = null, ok = 'Готово', danger = false }) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.className = 'dialog';
+    d.innerHTML = `<form class="dialog-body"><h2>${escapeHtml(title)}</h2>` +
+      (text ? `<p>${escapeHtml(text)}</p>` : '') +
+      (input ? `<input class="dialog-input" value="${escapeAttr(input.value || '')}" placeholder="${escapeAttr(input.placeholder || '')}" maxlength="80" enterkeyhint="done">` : '') +
+      '<div class="dialog-actions"><button type="button" class="pill-btn" data-dialog="cancel">Отмена</button>' +
+      `<button class="primary-btn${danger ? ' danger' : ''}">${escapeHtml(ok)}</button></div></form>`;
+    document.body.append(d);
+    const field = d.querySelector('.dialog-input');
+    const cancel = () => finish(input ? null : false);
+    function finish(result) {
+      d.close();
+      d.remove();
+      resolve(result);
+    }
+    d.querySelector('[data-dialog="cancel"]').addEventListener('click', cancel);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); cancel(); }); // Esc
+    d.addEventListener('click', (e) => { if (e.target === d) cancel(); }); // нажали мимо окна
+    d.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (field && !field.value.trim()) { field.focus(); return; }
+      finish(field ? field.value.trim() : true);
+    });
+    d.showModal();
+    if (field) { field.focus(); field.select(); }
+  });
+}
+const askText = (title, { value = '', placeholder = '', ok = 'Готово' } = {}) => openDialog({ title, input: { value, placeholder }, ok });
+const askConfirm = (title, text, ok = 'Удалить') => openDialog({ title, text, ok, danger: true });
+
 // Конфетти за хороший результат: ~120 бумажек падают и кружатся пару секунд
 function celebrate() {
   if (reducedMotion()) return;
@@ -1990,7 +2025,15 @@ function makeTest() {
 function testCheck() {
   const responses = readTestResponses();
   const empty = responses.filter((r) => r === undefined || r === '').length;
-  if (empty && !confirm(`Без ответа: ${plural(empty, 'вопрос', 'вопроса', 'вопросов')}. Всё равно проверить?`)) return;
+  if (empty) {
+    openDialog({ title: 'Проверить тест?', text: `Без ответа: ${plural(empty, 'вопрос', 'вопроса', 'вопросов')}.`, ok: 'Проверить' })
+      .then((yes) => { if (yes) gradeTestNow(responses); });
+    return;
+  }
+  gradeTestNow(responses);
+}
+
+function gradeTestNow(responses) {
   quiz.graded = { ...KlavaCore.gradeTest(quiz.questions, responses), responses };
   // каждый ответ — в повторение
   quiz.questions.forEach((q, i) => core.recordAnswer(q.card.id, quiz.settings.direction, quiz.graded.results[i] !== 'wrong'));
@@ -2113,12 +2156,12 @@ const folderSelect = (id, selected) =>
 
 function renderNewModule(folderId) {
   const selected = folderId || moduleFolders()[0].id;
-  return '<form id="new-module" class="form">' +
+  return '<form id="new-module" class="form form-card">' +
     '<h1>Новый модуль</h1>' +
     '<label class="field"><span>Название</span><input id="new-title" required placeholder="Например, «Слова из сериала»"></label>' +
     `<label class="field"><span>Папка</span>${folderSelect('new-folder', selected)}</label>` +
     langFields('new', store.get('new-langs', DEFAULT_LANGS)) +
-    '<button class="primary-btn">Создать и добавить карточки</button></form>';
+    `<button class="primary-btn form-submit">Создать и добавить карточки${icon('arrow')}</button></form>`;
 }
 
 // ---------- Импорт ----------
@@ -2131,30 +2174,32 @@ function renderImport({ folderId, moduleId }) {
     `<label class="radio"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}><span>${label}</span></label>`;
   const own = ownModules();
   const toExisting = Boolean(moduleId);
+  // Варианты «Куда» — блоками: поля варианта видны, только когда он выбран (см. .imp-option в style.css)
   return '<div id="import-form" class="form">' +
     '<h1>Импорт карточек</h1>' +
-    '<label class="field"><span>Список</span><textarea id="imp-text" rows="8" ' +
+    '<section class="form-card">' +
+    '<label class="field"><span>Список</span><textarea id="imp-text" rows="7" ' +
     'placeholder="Каждая карточка на своей строке, термин и определение через Tab — так копируют Quizlet («Экспорт») и таблицы"></textarea></label>' +
-    '<div class="imp-seps">' +
-    '<fieldset><legend>Между термином и определением</legend>' +
+    '<div class="choice-group"><span class="group-title">Между термином и определением</span><div class="chips">' +
     radio('imp-term', 'tab', 'Tab', true) + radio('imp-term', 'comma', 'Запятая') + radio('imp-term', 'semicolon', 'Точка с запятой') +
-    radio('imp-term', 'dash', 'Тире') + radio('imp-term', 'custom', 'Свой:') + '<input id="imp-term-custom" class="sep-input" maxlength="10">' +
-    '</fieldset>' +
-    '<fieldset><legend>Между карточками</legend>' +
+    radio('imp-term', 'dash', 'Тире') + radio('imp-term', 'custom', 'Свой') + '<input id="imp-term-custom" class="sep-input" maxlength="10" aria-label="Свой разделитель">' +
+    '</div></div>' +
+    '<div class="choice-group"><span class="group-title">Между карточками</span><div class="chips">' +
     radio('imp-card', 'newline', 'Новая строка', true) + radio('imp-card', 'semicolon', 'Точка с запятой') +
-    radio('imp-card', 'custom', 'Свой:') + '<input id="imp-card-custom" class="sep-input" maxlength="10">' +
-    '</fieldset></div>' +
-    '<fieldset class="imp-target"><legend>Куда</legend>' +
-    `<div class="imp-option">${radio('imp-target', 'new', 'Новый модуль', !toExisting)}` +
-    '<input id="imp-title" placeholder="Название модуля">' +
-    `${folderSelect('imp-folder', folderId || moduleFolders()[0].id)}${langFields('imp', store.get('new-langs', DEFAULT_LANGS))}</div>` +
-    (own.length ? `<div class="imp-option">${radio('imp-target', 'existing', 'Добавить в модуль', toExisting)}` +
-      `<select id="imp-module">${own.map((m) =>
-        `<option value="${escapeAttr(m.id)}"${m.id === moduleId ? ' selected' : ''}>${escapeHtml(m.title)}</option>`).join('')}</select></div>` : '') +
-    '</fieldset>' +
-    '<label class="radio"><input type="checkbox" id="imp-skip" checked><span>Пропустить повторы</span></label>' +
+    radio('imp-card', 'custom', 'Свой') + '<input id="imp-card-custom" class="sep-input" maxlength="10" aria-label="Свой разделитель">' +
+    '</div></div></section>' +
+    '<section class="form-card imp-target"><span class="group-title">Куда</span>' +
+    `<div class="imp-option">${radio('imp-target', 'new', 'Новый модуль', !toExisting)}<div class="imp-fields">` +
+    '<label class="field"><span>Название</span><input id="imp-title" placeholder="Например, «Слова из сериала»"></label>' +
+    `<label class="field"><span>Папка</span>${folderSelect('imp-folder', folderId || moduleFolders()[0].id)}</label>` +
+    `${langFields('imp', store.get('new-langs', DEFAULT_LANGS))}</div></div>` +
+    (own.length ? `<div class="imp-option">${radio('imp-target', 'existing', 'Добавить в свой модуль', toExisting)}<div class="imp-fields">` +
+      `<label class="field"><span>Модуль</span><select id="imp-module">${own.map((m) =>
+        `<option value="${escapeAttr(m.id)}"${m.id === moduleId ? ' selected' : ''}>${escapeHtml(m.title)}</option>`).join('')}</select></label></div></div>` : '') +
+    '<label class="check"><input type="checkbox" id="imp-skip" checked><span>Пропустить повторы</span></label>' +
+    '</section>' +
     '<div id="imp-preview" class="imp-preview"></div>' +
-    '<button class="primary-btn" data-act="import-go" disabled>Импортировать</button></div>';
+    `<button class="primary-btn form-submit" data-act="import-go" disabled>Импортировать${icon('download')}</button></div>`;
 }
 
 // Настройки импорта из формы и разобранный список
@@ -2621,23 +2666,33 @@ function onPageAction(e) {
   } else if (act.startsWith('match-')) {
     onMatchAction(act, btn);
   } else if (act === 'new-folder') {
-    const name = prompt('Название новой папки');
-    if (name && name.trim()) { location.hash = `#/folder/${core.createFolder(name).id}`; toast('Папка создана', 'folder'); }
+    askText('Новая папка', { placeholder: 'Например, «Английский B1»', ok: 'Создать' }).then((name) => {
+      if (!name) return;
+      location.hash = `#/folder/${core.createFolder(name).id}`;
+      toast('Папка создана', 'folder');
+    });
   } else if (act === 'rename-folder') {
-    const name = prompt('Новое название папки', folderOf(r.id).title);
-    if (name && name.trim()) { core.renameFolder(r.id, name); route(); }
+    askText('Переименовать папку', { value: folderOf(r.id).title, ok: 'Сохранить' }).then((name) => {
+      if (name) { core.renameFolder(r.id, name); route(); }
+    });
   } else if (act === 'delete-folder') {
     const n = core.modules(r.id).length;
-    if (n && !confirm(`Удалить папку «${folderOf(r.id).title}» и ${plural(n, 'модуль', 'модуля', 'модулей')} в ней?`)) return;
-    core.deleteFolder(r.id);
-    location.hash = '#/';
-    toast('Папка удалена', 'trash');
+    const remove = () => {
+      core.deleteFolder(r.id);
+      location.hash = '#/';
+      toast('Папка удалена', 'trash');
+    };
+    if (!n) remove();
+    else askConfirm(`Удалить папку «${folderOf(r.id).title}»?`, `Вместе с ней удалятся ${plural(n, 'модуль', 'модуля', 'модулей')}.`)
+      .then((yes) => { if (yes) remove(); });
   } else if (act === 'delete-module') {
     const l = lessonInfo(r.id);
-    if (!confirm(`Удалить модуль «${l.title}» со всеми карточками?`)) return;
-    core.deleteModule(r.id);
-    location.hash = `#/folder/${l.group}`;
-    toast('Модуль удалён', 'trash');
+    askConfirm(`Удалить модуль «${l.title}»?`, 'Все карточки модуля удалятся.').then((yes) => {
+      if (!yes) return;
+      core.deleteModule(r.id);
+      location.hash = `#/folder/${l.group}`;
+      toast('Модуль удалён', 'trash');
+    });
   } else if (act === 'copy-module') {
     location.hash = `#/module/${core.copyModule(r.id).id}/edit`;
     toast('Копия создана — можно править', 'copy');
