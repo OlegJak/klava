@@ -1346,14 +1346,29 @@ function initLanding() {
     el.classList.add('shown');
     el.querySelectorAll('[data-count]').forEach(countUp);
   };
-  if (!('IntersectionObserver' in window)) root.querySelectorAll('.reveal').forEach(show);
-  else {
-    root.classList.add('animate');
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
-    }, { threshold: .15 });
-    root.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-  }
+  // Показываем всё, что уже дошло до экрана или осталось выше него: после перезагрузки браузер
+  // возвращает прокрутку в середину страницы, и блоки выше не должны остаться невидимыми
+  root.classList.add('animate');
+  let pending = [...root.querySelectorAll('.reveal')];
+  let frame = 0;
+  const check = () => {
+    frame = 0;
+    if (!root.isConnected) { removeEventListener('scroll', onScroll); return; }
+    pending = pending.filter((el) => {
+      const r = el.getBoundingClientRect();
+      // скрытый на этой ширине блок (height 0) тоже показываем — вдруг экран повернут
+      const reached = r.top < innerHeight * .9 || (!r.height && !r.width);
+      if (reached) show(el);
+      return !reached;
+    });
+    if (!pending.length) removeEventListener('scroll', onScroll);
+  };
+  const onScroll = () => { frame ||= requestAnimationFrame(check); };
+  addEventListener('scroll', onScroll, { passive: true });
+  check();
+  // прокрутку, восстановленную браузером после загрузки, ловим ещё и так — на случай, если события прокрутки не было
+  setTimeout(check, 300);
+  addEventListener('load', check, { once: true });
 
   root.addEventListener('click', (e) => {
     const to = e.target.closest('[data-scroll]')?.dataset.scroll;
