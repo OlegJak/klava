@@ -2323,8 +2323,9 @@ const imageBox = (c) => (c?.image
 // Карточка в редакторе. Без карточки — пустая внизу для новой: та же разметка, инструменты спрятаны,
 // чтобы после ввода термина строка стала карточкой на месте и фокус не сбился
 function editCardRow(c, i, moveTo = []) {
+  // многострочное поле в одну строку высотой: длинный текст переносится вниз, поле растёт (см. autosize)
   const input = (field, label, value = '') =>
-    `<label class="field big"><input data-field="${field}" value="${escapeAttr(value)}" autocomplete="off"><span>${label}</span></label>`;
+    `<label class="field big"><textarea data-field="${field}" rows="1" autocomplete="off">${escapeHtml(value || '')}</textarea><span>${label}</span></label>`;
   const hasMore = c && (c.example || c.exampleTranslation || c.explanation);
   // без карточки — черновик: выглядит как обычная карточка и сохраняется, когда введён термин
   return `<li class="edit-card${c ? '' : ' draft'}"${c ? ` data-card="${escapeAttr(c.id)}"` : ''}>` +
@@ -2513,6 +2514,7 @@ function route() {
       startEditSession(r.id);
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Изменение']]);
       $('page-body').innerHTML = renderEditModule(r.id);
+      autosizeEditor();
     } else {
       renderCrumbs([folderCrumb, [null, l.title]]);
       $('page-body').innerHTML = renderModule(r.id);
@@ -2640,7 +2642,8 @@ function suggestTranslations(row, delay = 0) {
   const langs = langsOf(id);
   if (!term || langs.term === langs.definition) { drawSuggest(row, []); return; }
   suggestTimer = setTimeout(() => {
-    translateVariants(term, langs.term, langs.definition).then((variants) => {
+    // первую букву делаем строчной: Monitor → «монитор», а не «Монитор»; имена собственные Google оставит с большой
+    translateVariants(term[0].toLowerCase() + term.slice(1), langs.term, langs.definition).then((variants) => {
       // пока ждали ответа, термин могли поменять
       if (row.isConnected && row.querySelector('[data-field="term"]').value.trim() === term) {
         // варианты показываем у одной карточки — той, с которой работают
@@ -2660,10 +2663,18 @@ function pickVariant(btn) {
   const at = parts.findIndex((x) => x.toLowerCase() === text.toLowerCase());
   if (at >= 0) parts.splice(at, 1); else parts.push(text);
   def.value = parts.join(', ');
+  autosize(def);
   def.dispatchEvent(new Event('input', { bubbles: true }));
   def.dispatchEvent(new Event('change', { bubbles: true }));
   btn.classList.toggle('on', at < 0);
 }
+
+// Поля карточек растут по высоте вместе с текстом; переносы строк из вставки заменяем пробелами
+function autosize(el) {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+const autosizeEditor = () => document.querySelectorAll('.edit-card .field.big textarea').forEach(autosize);
 
 // Черновик становится карточкой на месте, без перерисовки: фокус остаётся там, куда его перевёл человек.
 // Карточка встаёт в модуле туда же, где стоит в списке
@@ -2698,6 +2709,7 @@ function onEditorChange(e) {
   if ('move' in el.dataset && el.value) {
     core.moveCardTo(id, row.dataset.card, el.value);
     $('edit-cards').innerHTML = editCardList(core.module(id));
+    autosizeEditor();
     return;
   }
   const field = el.dataset.field;
@@ -2738,6 +2750,7 @@ function onEditorCardAction(act, cardId, row) {
     markDirty();
     core.deleteCard(id, cardId);
     $('edit-cards').innerHTML = editCardList(core.module(id));
+    autosizeEditor();
   } else if (act === 'card-image') {
     pickImage(id, cardId);
   } else if (act === 'card-image-remove') {
@@ -3330,8 +3343,13 @@ function initPages() {
   });
   $('page-body').addEventListener('change', onEditorChange);
   $('page-body').addEventListener('input', (e) => {
-    if (e.target.matches?.('.edit-card [data-field="term"]')) suggestTranslations(e.target.closest('.edit-card'), 450);
+    const el = e.target;
+    if (!el.matches?.('.edit-card .field.big textarea')) return;
+    if (el.dataset.field !== 'explanation' && /\n/.test(el.value)) el.value = el.value.replace(/\s*\n\s*/g, ' ');
+    autosize(el);
+    if (el.dataset.field === 'term') suggestTranslations(el.closest('.edit-card'), 450);
   });
+  addEventListener('resize', () => { if (editorModule()) autosizeEditor(); });
   $('page-body').addEventListener('focusin', (e) => {
     const row = e.target.closest?.('.edit-card');
     if (row && e.target.matches('[data-field="definition"]') && row.querySelector('.tr-suggest').hidden) suggestTranslations(row);
