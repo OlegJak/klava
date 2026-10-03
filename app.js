@@ -1076,7 +1076,9 @@ function toast(text, iconName = 'check') {
 // ---------- Окна вопросов вместо prompt и confirm браузера ----------
 // openDialog → Promise: с полем ввода — введённый текст или null, без поля — true / false
 // choices — [[значение, подпись], …]: вместо поля ввода список, результат — выбранное значение
-function openDialog({ title, text = '', input = null, choices = null, value = '', ok = 'Готово', danger = false }) {
+// cancelLabel — подпись второй кнопки. Результат без поля: true — первая кнопка, false — вторая,
+// null — закрыли окно (Esc или нажатие мимо)
+function openDialog({ title, text = '', input = null, choices = null, value = '', ok = 'Готово', cancelLabel = 'Отмена', danger = false }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.className = 'dialog';
@@ -1085,7 +1087,7 @@ function openDialog({ title, text = '', input = null, choices = null, value = ''
       (input ? `<input class="dialog-input" value="${escapeAttr(input.value || '')}" placeholder="${escapeAttr(input.placeholder || '')}" maxlength="80" enterkeyhint="done">` : '') +
       (choices ? `<select class="dialog-input">${choices.map(([v, label]) =>
         `<option value="${escapeAttr(v)}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select>` : '') +
-      '<div class="dialog-actions"><button type="button" class="pill-btn" data-dialog="cancel">Отмена</button>' +
+      `<div class="dialog-actions"><button type="button" class="pill-btn" data-dialog="cancel">${escapeHtml(cancelLabel)}</button>` +
       `<button class="primary-btn${danger ? ' danger' : ''}">${escapeHtml(ok)}</button></div></form>`;
     document.body.append(d);
     const field = d.querySelector('.dialog-input');
@@ -1096,8 +1098,8 @@ function openDialog({ title, text = '', input = null, choices = null, value = ''
       resolve(result);
     }
     d.querySelector('[data-dialog="cancel"]').addEventListener('click', cancel);
-    d.addEventListener('cancel', (e) => { e.preventDefault(); cancel(); }); // Esc
-    d.addEventListener('click', (e) => { if (e.target === d) cancel(); }); // нажали мимо окна
+    d.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); }); // Esc
+    d.addEventListener('click', (e) => { if (e.target === d) finish(null); }); // нажали мимо окна
     d.querySelector('form').addEventListener('submit', (e) => {
       e.preventDefault();
       if (field && !field.value.trim()) { field.focus(); return; }
@@ -1869,7 +1871,7 @@ function renderLearn() {
   } else body = '';
 
   // После ответа: «Верно / Неверно» не пишем — подсказывают цвета. Только при вводе с ошибкой
-  // показываем правильный ответ. Кнопка «Продолжить» выезжает снизу экрана
+  // показываем правильный ответ. Кнопка «Продолжить» выезжает из-под карточки с заданием
   let verdict = '';
   let next = '';
   if (fb) {
@@ -1891,7 +1893,7 @@ function renderLearn() {
   $('page-body').innerHTML = `<div class="flash">${bar}<div class="learn-card${fb ? ` fb-${fb.result}` : ''}">` +
     `<div class="learn-head"><small>${what} ${target}</small>${speakBtn}</div>` +
     `<div class="flash-text${q.prompt.length > 40 ? ' long' : ''}">${escapeHtml(q.prompt)}</div>` +
-    `${body}${verdict}</div></div>${next}`;
+    `${body}${verdict}</div>${next}</div>`;
   if (q.stage === 2 && !fb) $('learn-input').focus();
 }
 
@@ -2362,18 +2364,67 @@ function addCardRow() {
   row.querySelector('[data-field="term"]').focus({ preventScroll: true });
 }
 
+// ---------- Сохранение в редакторе ----------
+// Правки применяются сразу (их видно, и они не пропадут при сбое связи), но до «Сохранить изменения»
+// считаются черновыми: при входе в редактор запоминаем снимок модуля. Ушли, не сохранив, и выбрали
+// «Не сохранять» — модуль возвращается к снимку
+const editSession = { id: null, snapshot: null, dirty: false };
+const saveButton = () => `<button type="button" class="primary-btn edit-save${editSession.dirty ? ' dirty' : ''}" data-act="edit-save">` +
+  `${editSession.dirty ? `${icon('check')}Сохранить изменения` : 'Готово'}</button>`;
+
+function startEditSession(id) {
+  if (editSession.id !== id) Object.assign(editSession, { id, snapshot: core.moduleSnapshot(id), dirty: false });
+}
+const endEditSession = () => Object.assign(editSession, { id: null, snapshot: null, dirty: false });
+
+function markDirty() {
+  if (!editSession.id || editSession.dirty) return;
+  editSession.dirty = true;
+  for (const b of document.querySelectorAll('[data-act="edit-save"]')) b.outerHTML = saveButton();
+}
+
+function saveEdits() {
+  document.activeElement?.blur?.(); // дописать поле, в котором стоит курсор (событие change)
+  const { id, dirty } = editSession;
+  endEditSession();
+  location.hash = `#/module/${id}`;
+  if (dirty) toast('Изменения сохранены', 'check');
+}
+
+// Уходят из редактора с несохранёнными правками: остаёмся на месте и спрашиваем.
+// Возвращает true, если переход отложен до ответа
+function guardEdits(r) {
+  if (!editSession.id || (r.screen === 'edit' && r.id === editSession.id)) return false;
+  if (!editSession.dirty) { endEditSession(); return false; }
+  const target = location.hash;
+  history.replaceState(null, '', `#/module/${editSession.id}/edit`);
+  openDialog({
+    title: 'Сохранить изменения?', text: 'Вы изменили модуль, но не сохранили правки.',
+    ok: 'Сохранить', cancelLabel: 'Не сохранять',
+  }).then((choice) => {
+    if (choice === null) return; // передумали уходить
+    if (!choice) {
+      try { core.restoreModule(editSession.snapshot); } catch {}
+      toast('Изменения отменены', 'x');
+    } else toast('Изменения сохранены', 'check');
+    endEditSession();
+    location.hash = target;
+  });
+  return true;
+}
+
 function renderEditModule(id) {
   const m = core.module(id);
   return `<div class="form" data-module="${escapeAttr(id)}">` +
-    '<div class="edit-head"><h1>Изменение модуля</h1>' +
-    `<a class="primary-btn" href="#/module/${id}">Готово</a></div>` +
+    `<div class="edit-head"><h1>Изменение модуля</h1>${saveButton()}</div>` +
     `<label class="field"><span>Название</span><input id="edit-title" value="${escapeAttr(m.title)}"></label>` +
     `<label class="field"><span>Папка</span>${folderSelect('edit-folder', m.folderId)}</label>` +
     langFields('edit', m.langs || DEFAULT_LANGS) +
     '<div class="edit-cards-head"><h2 class="edit-cards-title">Карточки</h2>' +
     '<small>Карточка сохраняется, когда введён термин; пустые карточки не сохраняются. Если языки сторон разные, перевод подставится сам</small></div>' +
     `<ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol>` +
-    `<button type="button" class="add-card" data-act="card-add">${icon('plus')}Добавить карточку<kbd>Enter</kbd></button></div>`;
+    `<button type="button" class="add-card" data-act="card-add">${icon('plus')}Добавить карточку<kbd>Enter</kbd></button>` +
+    `<div class="edit-footer">${saveButton()}</div></div>`;
 }
 
 // Хлебные крошки под шапкой: Главная › папка › модуль. На самой главной их нет
@@ -2420,6 +2471,8 @@ let onTrainer = false; // открыт ли тренажёр — иначе кл
 
 function route() {
   const r = parseRoute();
+  document.activeElement?.blur?.(); // дописать поле редактора до проверки несохранённых правок
+  if (guardEdits(r)) return;
   if (r.screen === 'home' && location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
   if (onTrainer) leaveTrainer();
   stopMatchTimer();
@@ -2456,6 +2509,7 @@ function route() {
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, MODE_NAMES[r.screen]]]);
       startMode(r.screen, r.id);
     } else if (r.screen === 'edit') {
+      startEditSession(r.id);
       renderCrumbs([folderCrumb, [`#/module/${r.id}`, l.title], [null, 'Изменение']]);
       $('page-body').innerHTML = renderEditModule(r.id);
     } else {
@@ -2609,11 +2663,13 @@ function onEditorCardAction(act, cardId, row) {
     return;
   }
   if (act === 'card-delete') {
+    markDirty();
     core.deleteCard(id, cardId);
     $('edit-cards').innerHTML = editCardList(core.module(id));
   } else if (act === 'card-image') {
     pickImage(id, cardId);
   } else if (act === 'card-image-remove') {
+    markDirty();
     core.updateCard(id, cardId, { image: '' });
     refreshImageBox(id, cardId);
   }
@@ -2653,6 +2709,7 @@ async function setCardImage(moduleId, cardId, file) {
   if (!file || !file.type.startsWith('image/')) { toast('Это не картинка', 'alert'); return; }
   try {
     core.updateCard(moduleId, cardId, { image: await compressImage(file) });
+    markDirty();
     refreshImageBox(moduleId, cardId);
     toast('Картинка добавлена', 'image');
   } catch (e) {
@@ -2785,7 +2842,7 @@ function initCardDrag() {
       const done = () => { row.classList.remove('dragging'); row.style.transition = ''; };
       if (reducedMotion()) done(); else setTimeout(done, 230);
       const index = saved().indexOf(row);
-      if (index !== startIndex) core.moveCard(moduleId, row.dataset.card, index);
+      if (index !== startIndex) { core.moveCard(moduleId, row.dataset.card, index); markDirty(); }
       renumberCards();
     };
     document.addEventListener('pointermove', move);
@@ -2838,6 +2895,8 @@ function onPageAction(e) {
     toast('Модуль снова в папке', 'eye');
   } else if (act === 'import-go') {
     doImport();
+  } else if (act === 'edit-save') {
+    saveEdits();
   } else if (act === 'card-add') {
     addCardRow();
   } else if (act.startsWith('card-')) {
@@ -3196,6 +3255,10 @@ function initPages() {
     startFlash(flashcards.moduleId, { fresh: true });
   });
   $('page-body').addEventListener('change', onEditorChange);
+  // любой ввод в редакторе — несохранённая правка
+  for (const type of ['input', 'change']) {
+    $('page-body').addEventListener(type, (e) => { if (e.target.closest?.('[data-module]')) markDirty(); });
+  }
   $('page-body').addEventListener('change', onImportInput);
   $('page-body').addEventListener('input', onImportInput);
   $('page-body').addEventListener('submit', onNewModule);

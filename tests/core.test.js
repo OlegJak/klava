@@ -245,6 +245,22 @@ test('свой модуль: создать в своей или встроен�
   assert.throws(() => core.createModule({ title: 'X', folderId: 'nope' }));
 });
 
+test('свой модуль: снимок и возврат к нему отменяют все правки', () => {
+  const core = makeCore();
+  const f = core.createFolder('A');
+  const m = core.createModule({ title: 'До', folderId: f.id });
+  core.addCard(m.id, { term: 'one', definition: 'один' });
+  const snap = core.moduleSnapshot(m.id);
+  core.updateModule(m.id, { title: 'После' });
+  core.addCard(m.id, { term: 'two' });
+  core.updateCard(m.id, core.module(m.id).cards[0].id, { definition: 'изменено' });
+  core.restoreModule(snap);
+  const back = core.module(m.id);
+  assert.equal(back.title, 'До');
+  assert.deepEqual(back.cards.map((c) => [c.term, c.definition]), [['one', 'один']]);
+  assert.throws(() => core.moduleSnapshot('basic')); // встроенный модуль не правится
+});
+
 test('свой модуль: переименовать, перенести в другую папку, удалить', () => {
   const core = makeCore();
   const a = core.createFolder('A');

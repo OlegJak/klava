@@ -352,6 +352,13 @@
         if ('folderId' in changes) m.folderId = changes.folderId;
         if ('langs' in changes) m.langs = moduleLangs(m.langs || { term: 'en', definition: 'ru' }, changes.langs);
       }),
+      // Снимок своего модуля и возврат к нему — для «Не сохранять» в редакторе
+      moduleSnapshot: (id) => editOwn((own) => JSON.parse(JSON.stringify(ownModule(own, id)))),
+      restoreModule: (snapshot) => editOwn((own) => {
+        const i = own.modules.findIndex((m) => m.id === snapshot.id);
+        if (i < 0) throw new Error(`Нет модуля ${snapshot.id}`);
+        own.modules[i] = JSON.parse(JSON.stringify(snapshot));
+      }),
       deleteModule: (id) => editOwn((own) => {
         ownModule(own, id);
         if (id === MINE) throw new Error('«Мои слова» удалить нельзя');
