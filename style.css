@@ -1027,9 +1027,11 @@ button:active:not(:disabled), .tile:active, .mode-btn:active, a.pill-btn:active 
   .key small { display: none; }
   .stats { margin-left: 0; width: 100%; justify-content: space-between; }
   .lesson-btn { min-width: 0; flex: 1; }
-  .crumbs { order: 3; flex-basis: 100%; }
-  .theme-btn { margin-left: auto; }
-  .account { order: 2; }
+  /* шапка в одну строку: знак слева, облако, «Выйти» и тема — справа; крошки — строкой ниже */
+  .crumbs { order: 4; flex-basis: 100%; }
+  .crumbs:empty { display: none; }
+  .account { order: 2; margin-left: auto; }
+  .top .theme-btn { order: 3; margin-left: 0; }
   .top { position: static; }
   .stats-row { gap: 8px; }
   .today-banner { flex-wrap: wrap; }
@@ -1037,7 +1039,8 @@ button:active:not(:disabled), .tile:active, .mode-btn:active, a.pill-btn:active 
   .today-go { width: 100%; margin-left: 0; text-align: center; }
   .stat { flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; }
   .stat-text b { font-size: 20px; }
-  .account-email { max-width: 140px; }
+  .account-email .email-text, .sync-status { display: none; }
+  .account .pill-btn { padding: 6px 14px; }
   .card-list li { grid-template-columns: 1fr; gap: 2px; }
   .card-list.with-dots li { grid-template-columns: 10px 1fr; column-gap: 10px; }
   .card-list.with-dots .card-def { grid-column: 2; }

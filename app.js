@@ -2928,7 +2928,7 @@ function renderAccount() {
     el.innerHTML = '<button class="pill-btn" data-act="sign-in">Войти через Google</button>';
     return;
   }
-  el.innerHTML = `<span class="account-email" title="Данные хранятся в облаке">${icon('cloud')} ${escapeHtml(cloud.user.email || '')}</span>` +
+  el.innerHTML = `<span class="account-email" title="${escapeAttr(cloud.user.email || '')} — данные хранятся в облаке">${icon('cloud')} <span class="email-text">${escapeHtml(cloud.user.email || '')}</span></span>` +
     '<span id="sync-status" class="sync-status"></span>' +
     '<button class="pill-btn" data-act="sign-out">Выйти</button>';
 }
