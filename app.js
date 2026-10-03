@@ -84,6 +84,43 @@ const makeCore = (builtIns = false) => KlavaCore.createCore({
 let core = makeCore();
 const store = core.settings;
 
+// ---------- Языки модулей ----------
+// Пока три языка. Одинаковые языки сторон — модуль терминов с объяснениями: «Коленвал — вал двигателя, который…»
+const LANGS = {
+  en: { name: 'Английский', short: 'англ', adv: 'по-английски', speech: 'en-US' },
+  ru: { name: 'Русский', short: 'рус', adv: 'по-русски', speech: 'ru-RU' },
+  et: { name: 'Эстонский', short: 'эст', adv: 'по-эстонски', speech: 'et-EE' },
+};
+const DEFAULT_LANGS = { term: 'en', definition: 'ru' };
+const langsOf = (moduleId) => core.module(moduleId)?.langs || DEFAULT_LANGS;
+// Языки карточки: по колоде, а в «Сегодня» — по модулю, где карточка лежит
+function cardLangs(cardId, deckId) {
+  if (deckId !== 'today') return langsOf(deckId);
+  return langsOf(core.dueCards().find((x) => x.card.id === cardId)?.moduleId);
+}
+// Языки колоды; у «Сегодня» — только если они общие у всех модулей с карточками к повтору
+function deckLangs(deckId) {
+  if (deckId !== 'today') return langsOf(deckId);
+  const all = [...new Set(core.dueCards().map((x) => x.moduleId))].map(langsOf);
+  return all.length && all.every((l) => l.term === all[0].term && l.definition === all[0].definition) ? all[0] : null;
+}
+const isTermDeck = (l) => !l || l.term === l.definition;
+// Подписи направлений: «англ → рус» или, у терминов и смешанных колод, «Термин → определение»
+function dirLabels(deckId) {
+  const l = deckLangs(deckId);
+  if (isTermDeck(l)) return { 'en-ru': 'Термин → определение', 'ru-en': 'Определение → термин' };
+  const s = (c) => LANGS[c]?.short || c;
+  return { 'en-ru': `${s(l.term)} → ${s(l.definition)}`, 'ru-en': `${s(l.definition)} → ${s(l.term)}` };
+}
+const langSelect = (id, value) => `<select id="${id}">${Object.entries(LANGS).map(([code, l]) =>
+  `<option value="${code}"${code === value ? ' selected' : ''}>${l.name}</option>`).join('')}</select>`;
+// Выбор языков сторон в формах модуля; prefix — начало id полей
+const langFields = (prefix, langs) => '<div class="lang-fields">' +
+  `<label class="field"><span>Язык терминов</span>${langSelect(`${prefix}-term-lang`, langs.term)}</label>` +
+  `<label class="field"><span>Язык определений</span>${langSelect(`${prefix}-def-lang`, langs.definition)}</label>` +
+  '<small class="lang-hint">Для терминов вроде «Коленвал — вал двигателя, который…» выберите один язык с обеих сторон</small></div>';
+const readLangs = (prefix) => ({ term: $(`${prefix}-term-lang`).value, definition: $(`${prefix}-def-lang`).value });
+
 // Каждый фрагмент: { text, parts: [{ from, to, tr }] } — части нужны для перевода текущего слова
 function makeChunks(lessonId) {
   if (lessonId === 'custom') {
@@ -102,8 +139,9 @@ function makeChunks(lessonId) {
   // Фразы — по 10 за урок, слова — по 20, в каждой строке одна фраза или одно слово
   // в «Сегодня» слова и фразы вперемешку: фразой считаем термин из трёх слов и длиннее
   const kind = lessonId === 'today' ? null : core.module(lessonId).kind;
+  const cards = lessonId === 'today' ? typeableDue() : deckCards(lessonId);
   const wordLike = (en) => (kind ? kind === 'words' : en.split(/\s+/).length < 3);
-  return shuffle(deckCards(lessonId)).slice(0, kind === 'phrases' ? 10 : 20).map(({ id: cardId, term: en, definition: ru, explanation }) => ({
+  return shuffle(cards).slice(0, kind === 'phrases' ? 10 : 20).map(({ id: cardId, term: en, definition: ru, explanation }) => ({
     cardId, text: en, ru, note: explanation, parts: [{ from: 0, to: en.length, tr: wordLike(en) ? `${en} — ${ru || '?'}` : ru }],
   }));
 }
@@ -606,13 +644,14 @@ function finish() {
 const dict = core.wordTranslations(); // перевод слов из уроков: слово -> перевод
 const trCache = {};   // текст -> Promise с переводом
 
-function translate(word) {
-  if (dict[word]) return Promise.resolve(dict[word]);
-  trCache[word] ??= fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ru&dt=t&q=' + encodeURIComponent(word))
+function translate(word, from = 'en', to = 'ru') {
+  if (from === 'en' && to === 'ru' && dict[word]) return Promise.resolve(dict[word]);
+  const key = `${from}>${to}:${word}`;
+  trCache[key] ??= fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=` + encodeURIComponent(word))
     .then((r) => r.json())
     .then((j) => j[0].map((x) => x[0]).join('').trim() || null)
-    .catch(() => { delete trCache[word]; return null; });
-  return trCache[word];
+    .catch(() => { delete trCache[key]; return null; });
+  return trCache[key];
 }
 
 // Слово под курсором (или последнее набранное, если курсор стоит после слова)
@@ -1099,7 +1138,7 @@ function renderToday() {
     mode('learn', icon('target'), 'Заучивание', 'Выбор из вариантов, потом ввод ответа') +
     mode('test', icon('test'), 'Тест', 'Вопросы разных типов и оценка в конце') +
     mode('match', icon('match'), 'Подбор пар', 'Соединить термины с переводами на время') +
-    (canType() ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы, диктант, перевод на английский') : '') +
+    (canTypeDeck('today') ? mode('type', icon('keyboard'), 'Набор', 'Печатать английские слова и фразы, диктант, перевод на английский') : '') +
     '</div>' +
     `<ol class="card-list">${due.map(({ card: c, moduleId }) =>
       `<li><span class="card-term">${escapeHtml(c.term)}<small class="card-module">${escapeHtml(lessonInfo(moduleId).title)}</small></span>` +
@@ -1111,9 +1150,9 @@ function renderToday() {
 // Карточку-пример на первом экране можно попробовать без входа
 const LANDING_DEMO = [
   ['serendipity', 'счастливая случайность'],
-  ['breakthrough', 'прорыв'],
-  ['to grasp', 'ухватить суть, понять'],
-  ['reliable', 'надёжный'],
+  ['Коленвал', 'вал двигателя, который превращает движение поршней во вращение'],
+  ['raamat', 'книга'],
+  ['Фотосинтез', 'как растения делают сахар из света, воды и углекислого газа'],
 ];
 
 function renderLanding() {
@@ -1134,10 +1173,11 @@ function renderLanding() {
     // Первый экран: обещание, кнопка входа и живая карточка
     '<section class="land-hero">' +
       '<div class="land-hero-text">' +
-        `<span class="land-eyebrow">${icon('sparkle')} Бесплатная платформа для запоминания слов</span>` +
-        '<h1>Английские слова — <span class="land-grad">в память навсегда</span>, а не до завтра</h1>' +
-        '<p>Карточки, тесты, игра на скорость и тренажёр набора в одном месте. Klava сама считает, какие слова ' +
-        'повторить сегодня, — 10 минут в день, и они переходят в долговременную память.</p>' +
+        `<span class="land-eyebrow">${icon('sparkle')} Бесплатная платформа для запоминания</span>` +
+        '<h1>Запоминайте что угодно — <span class="land-grad">навсегда</span>, а не до завтра</h1>' +
+        '<p>Иностранные слова, термины по работе и учёбе, определения к экзамену. Соберите модуль — и учите его ' +
+        'карточками, тестами и игрой на скорость. Klava сама считает, что повторить сегодня: 10 минут в день, ' +
+        'и знания остаются в долговременной памяти.</p>' +
         `<div class="land-cta">${cta('Начать бесплатно')}<button class="ghost-btn" data-scroll="land-how">Как это работает</button></div>` +
         `<ul class="land-trust"><li>${icon('check')}Бесплатно</li><li>${icon('check')}Без рекламы</li><li>${icon('check')}Вход через Google за 5 секунд</li></ul>` +
       '</div>' +
@@ -1162,7 +1202,7 @@ function renderLanding() {
     '<section class="land-stats reveal">' +
       stat(5, '', 'режимов обучения', 'карточки, заучивание, тест, пары, набор') +
       stat(5, '', 'ступеней повторения', 'через 1, 3, 7, 14 и 30 дней') +
-      stat(2, '', 'направления', 'с английского и на английский') +
+      stat(3, '', 'языка', 'английский, русский и эстонский — с озвучкой') +
       stat(100, '%', 'ваши данные', 'модули и прогресс видите только вы') +
       stat(0, '&nbsp;€', 'стоимость', 'без подписки и платных уровней') +
     '</section>' +
@@ -1174,7 +1214,7 @@ function renderLanding() {
         '<h2>Без повторения мозг стирает новое за считанные дни</h2>' +
         '<p>Это кривая забывания — её ещё в XIX веке описал психолог Герман Эббингауз. Зубрёжка накануне не спасает: ' +
         'через неделю от выученного остаются обрывки.</p>' +
-        '<p>Секрет — повторять слово именно тогда, когда оно начинает ускользать. С каждым повтором память держит его ' +
+        '<p>Секрет — повторять слово или термин именно тогда, когда он начинает ускользать. С каждым повтором память держит его ' +
         'дольше. <b>Klava считает эти моменты за вас</b> и каждый день собирает подборку «Повторить сегодня».</p>' +
         '<ol class="land-boxes">' + [1, 3, 7, 14, 30].map((d, i) =>
           `<li style="--i:${i}"><b>${d}</b><small>${plural(d, 'день', 'дня', 'дней').replace(/^\d+ /, '')}</small></li>`).join('') + '</ol>' +
@@ -1201,11 +1241,11 @@ function renderLanding() {
       '<span class="land-kicker">Пять способов выучить слово</span>' +
       '<h2>Учите так, как удобно именно вам</h2>' +
       '<div class="land-modes">' +
-        mode('cards', 'cards', 'Карточки', 'Переворачивайте и отмечайте «знаю / не знаю». Смахивайте влево и вправо на телефоне.', 'Быстрое знакомство') +
+        mode('cards', 'cards', 'Карточки', 'Переворачивайте и отмечайте «знаю / не знаю». На телефоне — смахивайте влево и вправо.', 'Быстрое знакомство') +
         mode('learn', 'target', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа. Ошибки возвращаются, пока не выучите.', 'Самый эффективный') +
         mode('test', 'test', 'Тест', 'Вопросы разных типов и оценка в конце — проверьте себя перед экзаменом.') +
-        mode('match', 'match', 'Подбор пар', 'Соединяйте слова с переводами на время и бейте собственный рекорд.', 'Игра') +
-        mode('type', 'keyboard', 'Набор текста', 'Печатайте слова и фразы, пишите диктант на слух и переводите на английский.', 'Только в Klava') +
+        mode('match', 'match', 'Подбор пар', 'Соединяйте термины с определениями на время и бейте собственный рекорд.', 'Игра') +
+        mode('type', 'keyboard', 'Набор текста', 'Печатайте английские слова и фразы, пишите диктант на слух и переводите на английский.', 'Только в Klava') +
       '</div>' +
     '</section>' +
 
@@ -1214,29 +1254,29 @@ function renderLanding() {
       '<span class="land-kicker">И ещё десяток мелочей</span>' +
       '<h2>Всё, чтобы учить было легко</h2>' +
       '<ul class="land-perks">' +
+        perk('book', 'Любые термины', 'Коленвал, фотосинтез, статья закона — модуль с определениями на одном языке') +
         perk('download', 'Импорт из Quizlet', 'Перенесите свои модули за минуту — вставьте экспорт или таблицу') +
-        perk('translate', 'Автоперевод', 'Введите слово — перевод подставится сам') +
+        perk('translate', 'Автоперевод', 'Введите слово — перевод между английским, русским и эстонским подставится сам') +
         perk('image', 'Картинки', 'Добавьте изображение к слову — запоминается в разы легче') +
-        perk('volume', 'Озвучка', 'Каждое слово и фраза звучат с правильным произношением') +
+        perk('volume', 'Озвучка', 'Слова звучат на английском, русском и эстонском — голосами вашего браузера') +
         perk('star', 'Избранное', 'Отмечайте трудные слова и учите только их') +
         perk('folder', 'Папки и модули', 'Раскладывайте слова по темам, урокам и экзаменам') +
         perk('chart', 'Статистика и серии', 'Сколько выучено, сколько повторить и сколько дней подряд вы учитесь') +
         perk('phone', 'На всех устройствах', 'Начали на компьютере — продолжили в телефоне, прогресс общий') +
-        perk('moon', 'Тёмная тема', 'Удобно учить вечером, глаза не устают') +
       '</ul>' +
     '</section>' +
 
     // Сравнение
     '<section class="land-section">' +
       '<span class="land-kicker">Честное сравнение</span>' +
-      '<h2>Тетрадка со словами или Klava</h2>' +
+      '<h2>Тетрадка или Klava</h2>' +
       '<ul class="land-compare reveal">' +
         '<li class="cmp-head"><span>Тетрадка и зубрёжка</span><span>Klava</span></li>' +
         row('Повторяете всё подряд или ничего', 'Повторяете только то, что начинаете забывать') +
-        row('Непонятно, что уже выучено', 'Прогресс по каждому слову в обе стороны') +
+        row('Непонятно, что уже выучено', 'Прогресс по каждой карточке в обе стороны') +
         row('Скучно — бросаете через неделю', 'Пять режимов, игра на время и серии дней') +
-        row('Нет произношения', 'Каждое слово звучит вслух') +
-        row('Тетрадь осталась дома', 'Слова с вами на любом устройстве') +
+        row('Нет произношения', 'Слова звучат вслух') +
+        row('Тетрадь осталась дома', 'Модули с вами на любом устройстве') +
       '</ul>' +
     '</section>' +
 
@@ -1246,7 +1286,7 @@ function renderLanding() {
       '<h2>Три шага — и вы уже учите</h2>' +
       '<ol class="land-steps">' +
         step(1, 'Войдите через Google', 'Один клик, без паролей и анкет') +
-        step(2, 'Создайте модуль', 'Добавьте свои слова или импортируйте из Quizlet') +
+        step(2, 'Создайте модуль', 'Слова с переводами или термины с определениями — свои или из Quizlet') +
         step(3, 'Повторяйте 10 минут в день', 'Klava подскажет, какие слова повторить сегодня') +
       '</ol>' +
     '</section>' +
@@ -1258,18 +1298,20 @@ function renderLanding() {
       faq('Это правда бесплатно?', 'Да. Все режимы, модули, папки и повторение доступны бесплатно, без пробного периода и рекламы.') +
       faq('Зачем входить через Google?', 'Чтобы ваши модули и прогресс сохранялись в облаке и были доступны на любом устройстве. ' +
         'Пароль придумывать не нужно, Klava получает только вашу почту.') +
-      faq('Кто видит мои слова?', 'Только вы. Данные хранятся в защищённой базе, и доступ к ним есть только у вашего аккаунта.') +
+      faq('Что можно учить?', 'Иностранные слова — с переводом, озвучкой и автопереводом: пока для английского, русского ' +
+        'и эстонского. И любые термины с определениями: устройство автомобиля, медицину, право, историю — всё, что нужно запомнить.') +
+      faq('Кто видит мои модули?', 'Только вы. Данные хранятся в защищённой базе, и доступ к ним есть только у вашего аккаунта.') +
       faq('У меня уже есть модули в Quizlet', 'Экспортируйте модуль в Quizlet и вставьте текст в Klava — слова и переводы перенесутся за минуту.') +
       faq('Работает ли на телефоне?', 'Да, сайт подстраивается под экран: карточки можно смахивать пальцем, прогресс общий с компьютером.') +
     '</section>' +
 
     // Финальный призыв
     '<section class="land-final reveal">' +
-      '<h2>Начните сегодня — первые слова запомнятся уже через неделю</h2>' +
+      '<h2>Начните сегодня — первые слова и термины запомнятся уже через неделю</h2>' +
       '<p>Вход занимает 5 секунд. Никаких карт и подписок.</p>' +
       cta('Войти через Google', 'light') +
     '</section>' +
-    '<footer class="land-footer"><span class="brand-mark">K</span>Klava — учите английский с удовольствием</footer>' +
+    '<footer class="land-footer"><span class="brand-mark">K</span>Klava — запоминайте с удовольствием</footer>' +
   '</div>';
 }
 
@@ -1328,6 +1370,7 @@ function initLanding() {
         return;
       }
       [$('demo-term').textContent, $('demo-def').textContent] = LANDING_DEMO[i];
+      card.classList.toggle('long', LANDING_DEMO[i][1].length > 30);
       $('demo-count').textContent = `${i + 1} / ${LANDING_DEMO.length}`;
     }, reducedMotion() ? 0 : 260);
   });
@@ -1343,8 +1386,8 @@ function renderWelcome() {
     `<li><span class="step-num">${n}</span><span class="step-icon">${icon(iconName)}</span><b>${title}</b><small>${sub}</small></li>`;
   return '<section class="welcome">' +
     '<div class="welcome-hero"><span class="brand-mark big">K</span>' +
-    '<h1>Учите слова так, как удобно вам</h1>' +
-    '<p>Соберите свой модуль — набор слов и выражений с переводами — и запоминайте его карточками, заучиванием, тестами ' +
+    '<h1>Учите что угодно так, как удобно вам</h1>' +
+    '<p>Соберите свой модуль — слова с переводами или термины с определениями — и запоминайте его карточками, заучиванием, тестами ' +
     'и игрой на скорость. Klava сама напомнит, когда пора повторить.</p></div>' +
     '<div class="welcome-actions">' +
     action({ href: '#/new' }, 'cards', 'plus', 'Создать модуль', 'Добавьте слова и переводы — перевод подставится сам') +
@@ -1428,7 +1471,7 @@ function refreshStudyFilter(moduleId) {
 function onTermAction(act, row) {
   const moduleId = parseRoute().id;
   const card = core.module(moduleId).cards.find((c) => c.id === row.dataset.card);
-  if (act === 'term-speak') speakText(card.term);
+  if (act === 'term-speak') speakText(card.term, langsOf(moduleId).term);
   else if (act === 'term-star') {
     const on = core.toggleStar(card.id);
     redrawTermRow(row, row.classList.contains('editing'));
@@ -1489,12 +1532,15 @@ function renderModule(id) {
     mode('learn', icon('target'), 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа — пока не запомнится') +
     mode('test', icon('test'), 'Тест', 'Вопросы разных типов и оценка в конце') +
     mode('match', icon('match'), 'Подбор пар', 'Соединить термины с переводами на время') +
-    (canType() ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
+    (canTypeDeck(id) ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
     `</div><div id="study-filter">${studyFilter(id, cards.length, starred)}</div>${list}`;
 }
 
 // Режимы набора нужны физической клавиатуре: на сенсорном экране без мыши их не показываем
 const canType = () => matchMedia('(any-pointer: fine)').matches;
+// Тренажёр набора — под английскую раскладку: в нём только модули с английскими терминами
+const typeableDue = () => core.dueCards().filter((x) => langsOf(x.moduleId).term === 'en').map((x) => x.card);
+const canTypeDeck = (id) => canType() && (id === 'today' ? typeableDue().length > 0 : langsOf(id).term === 'en');
 
 // ---------- Режим «Карточки» ----------
 // #/module/<id>/cards. Направление и «перемешать» запоминаются в настройках
@@ -1527,7 +1573,7 @@ function renderFlash() {
   const dir = flashDir();
   const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="flash-dir" data-dir="${value}">${label}</button>`;
   const bar = '<div class="flash-bar">' +
-    `<div class="seg">${seg('en-ru', 'англ → рус')}${seg('ru-en', 'рус → англ')}</div>` +
+    `<div class="seg">${seg('en-ru', dirLabels(flashcards.moduleId)['en-ru'])}${seg('ru-en', dirLabels(flashcards.moduleId)['ru-en'])}</div>` +
     `<label class="radio"><input type="checkbox" id="flash-shuffle"${flashOptions().shuffle ? ' checked' : ''}><span>Перемешать</span></label>` +
     `<span class="flash-progress">${s.done ? s.total : s.position} / ${s.total}</span></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.index / s.total) * 100 : 0}%"></span></div>`;
@@ -1562,12 +1608,19 @@ function renderFlash() {
     '</div></div>';
 }
 
-// Английская сторона звучит сама, когда появляется, — если в настройках включена озвучка
+// Сторона с термином звучит сама, когда появляется, — если в настройках включена озвучка
+const flashTermShown = () => (flashDir() === 'en-ru' ? !flashcards.flipped : flashcards.flipped);
 function flashAutoSpeak() {
   const s = flashcards.session;
   if (s.done || !store.get('auto-read', true)) return;
-  const englishShown = flashDir() === 'en-ru' ? !flashcards.flipped : flashcards.flipped;
-  if (englishShown) speakText(s.current.term);
+  if (flashTermShown()) speakText(s.current.term, cardLangs(s.current.id, flashcards.moduleId).term, true);
+}
+// Кнопка озвучки — видимая сторона на своём языке
+function flashSpeak() {
+  const c = flashcards.session.current;
+  const langs = cardLangs(c.id, flashcards.moduleId);
+  if (flashTermShown()) speakText(c.term, langs.term);
+  else speakText(c.definition, langs.definition);
 }
 
 function flashFlip() {
@@ -1642,7 +1695,7 @@ function onFlashAction(act, btn) {
     flashFlip();
   }
   else if (act === 'flash-yes' || act === 'flash-no') flashMark(act === 'flash-yes');
-  else if (act === 'flash-speak' && s.current) speakText(s.current.term);
+  else if (act === 'flash-speak' && s.current) flashSpeak();
   else if (act === 'flash-retry') startFlash(flashcards.moduleId, s.unknown);
   else if (act === 'flash-restart') startFlash(flashcards.moduleId);
   else if (act === 'flash-dir') { store.set('cards-dir', btn.dataset.dir); startFlash(flashcards.moduleId); }
@@ -1662,16 +1715,17 @@ function startLearn(moduleId) {
   learnAutoSpeak();
 }
 
-// Английская сторона: в «англ → рус» — вопрос, в «рус → англ» — ответ (звучит после ответа)
-const learnEnglish = () => {
+// Сторона с термином: в прямом направлении — вопрос, в обратном — ответ (звучит после ответа)
+const learnTerm = () => {
   const q = learn.state.question;
   if (!q) return null;
   if (flashDir() === 'en-ru') return q.prompt;
   return learn.feedback ? q.answer : null;
 };
+const learnTermLang = () => cardLangs(learn.state.question.card.id, learn.moduleId).term;
 function learnAutoSpeak() {
-  const en = learnEnglish();
-  if (en && store.get('auto-read', true)) speakText(en);
+  const term = learnTerm();
+  if (term && store.get('auto-read', true)) speakText(term, learnTermLang(), true);
 }
 
 function renderLearn() {
@@ -1680,7 +1734,7 @@ function renderLearn() {
   const dir = flashDir();
   const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="learn-dir" data-dir="${value}">${label}</button>`;
   const bar = '<div class="flash-bar">' +
-    `<div class="seg">${seg('en-ru', 'англ → рус')}${seg('ru-en', 'рус → англ')}</div>` +
+    `<div class="seg">${seg('en-ru', dirLabels(learn.moduleId)['en-ru'])}${seg('ru-en', dirLabels(learn.moduleId)['ru-en'])}</div>` +
     (s.done ? '' : `<span class="learn-round">Раунд ${s.round}</span>`) +
     `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.mastered / s.total) * 100 : 0}%"></span></div>`;
@@ -1697,8 +1751,11 @@ function renderLearn() {
 
   const q = s.question;
   const what = q.stage === 1 ? 'Выберите' : 'Напишите';
-  const target = dir === 'en-ru' ? 'перевод' : 'по-английски';
-  const speakBtn = learnEnglish() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '';
+  // что писать: «перевод» и «по-эстонски» или, у терминов, «определение» и «термин»
+  const langs = deckLangs(learn.moduleId);
+  const target = isTermDeck(langs) ? (dir === 'en-ru' ? 'определение' : 'термин')
+    : dir === 'en-ru' ? 'перевод' : LANGS[langs.term]?.adv || 'термин';
+  const speakBtn = learnTerm() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '';
   let body;
   if (q.stage === 1) {
     body = '<div class="learn-choices">' + q.choices.map((c, i) => {
@@ -1709,7 +1766,7 @@ function renderLearn() {
     }).join('') + '</div>';
   } else if (!fb) {
     body = '<form id="learn-form" class="learn-form">' +
-      `<input id="learn-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${dir === 'en-ru' ? 'Перевод' : 'По-английски'}">` +
+      `<input id="learn-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${target[0].toUpperCase() + target.slice(1)}">` +
       '<button class="primary-btn">Ответить</button>' +
       '<button type="button" class="pill-btn" data-act="learn-skip">Не знаю</button></form>';
   } else body = '';
@@ -1761,7 +1818,7 @@ function onLearnAction(act, btn) {
   } else if (act === 'learn-skip') learnRespond('wrong', '');
   else if (act === 'learn-next') learnContinue();
   else if (act === 'learn-override') learnContinue(true);
-  else if (act === 'learn-speak') speakText(learnEnglish());
+  else if (act === 'learn-speak') speakText(learnTerm(), learnTermLang());
   else if (act === 'learn-restart') startLearn(learn.moduleId);
   else if (act === 'learn-dir') { store.set('cards-dir', btn.dataset.dir); startLearn(learn.moduleId); }
 }
@@ -1815,7 +1872,7 @@ function renderTestSetup() {
   return '<div class="form test-setup"><h1>Тест</h1>' +
     `<label class="field"><span>Вопросов (карточек в наборе: ${total})</span>` +
     `<input type="number" id="test-count" min="1" max="${total}" value="${Math.min(store.get('test-count', 10), total)}"></label>` +
-    `<fieldset><legend>Направление</legend>${radio('en-ru', 'англ → рус')}${radio('ru-en', 'рус → англ')}</fieldset>` +
+    `<fieldset><legend>Направление</legend>${radio('en-ru', dirLabels(quiz.deckId)['en-ru'])}${radio('ru-en', dirLabels(quiz.deckId)['ru-en'])}</fieldset>` +
     '<fieldset><legend>Типы вопросов</legend>' + Object.entries(TEST_TYPE_NAMES).map(([t, name]) =>
       `<label class="radio"><input type="checkbox" name="test-type" value="${t}"${types.includes(t) ? ' checked' : ''}><span>${name}</span></label>`).join('') +
     '</fieldset>' +
@@ -2031,6 +2088,7 @@ function renderNewModule(folderId) {
     '<h1>Новый модуль</h1>' +
     '<label class="field"><span>Название</span><input id="new-title" required placeholder="Например, «Слова из сериала»"></label>' +
     `<label class="field"><span>Папка</span>${folderSelect('new-folder', selected)}</label>` +
+    langFields('new', store.get('new-langs', DEFAULT_LANGS)) +
     '<button class="primary-btn">Создать и добавить карточки</button></form>';
 }
 
@@ -2060,7 +2118,7 @@ function renderImport({ folderId, moduleId }) {
     '<fieldset class="imp-target"><legend>Куда</legend>' +
     `<div class="imp-option">${radio('imp-target', 'new', 'Новый модуль', !toExisting)}` +
     '<input id="imp-title" placeholder="Название модуля">' +
-    `${folderSelect('imp-folder', folderId || moduleFolders()[0].id)}</div>` +
+    `${folderSelect('imp-folder', folderId || moduleFolders()[0].id)}${langFields('imp', store.get('new-langs', DEFAULT_LANGS))}</div>` +
     (own.length ? `<div class="imp-option">${radio('imp-target', 'existing', 'Добавить в модуль', toExisting)}` +
       `<select id="imp-module">${own.map((m) =>
         `<option value="${escapeAttr(m.id)}"${m.id === moduleId ? ' selected' : ''}>${escapeHtml(m.title)}</option>`).join('')}</select></div>` : '') +
@@ -2121,7 +2179,9 @@ async function doImport() {
   if (!moduleId) {
     const title = $('imp-title');
     if (!title.value.trim()) { title.value = ''; title.required = true; title.reportValidity(); return; }
-    moduleId = core.createModule({ title: title.value, folderId: $('imp-folder').value }).id;
+    const langs = readLangs('imp');
+    store.set('new-langs', langs);
+    moduleId = core.createModule({ title: title.value, folderId: $('imp-folder').value, langs }).id;
   }
   const added = core.addCards(moduleId, toAdd.map(({ term, definition }) => ({ term, definition })));
   // пустые определения заполняем переводом, как в редакторе, и ждём его, чтобы модуль открылся уже с ним
@@ -2153,7 +2213,7 @@ function editCardRow(c, i, moveTo = []) {
   return `<li class="edit-card${c ? '' : ' new'}"${c ? ` data-card="${escapeAttr(c.id)}"` : ''}>` +
     '<div class="edit-card-head">' +
     `<span class="edit-num">${c ? i + 1 : icon('plus')}</span>` +
-    (c ? '' : '<small class="edit-hint">Введите термин — карточка сохранится сама, перевод подставится автоматически</small>') +
+    (c ? '' : '<small class="edit-hint">Введите термин — карточка сохранится сама. Если языки сторон разные, перевод подставится автоматически</small>') +
     '<span class="edit-tools">' +
     `<button class="icon-btn drag-handle" title="Перетащить">${icon('grip')}</button>` +
     `<button class="icon-btn" data-act="card-delete" title="Удалить карточку">${icon('trash')}</button></span></div>` +
@@ -2181,6 +2241,7 @@ function renderEditModule(id) {
     `<a class="primary-btn" href="#/module/${id}">Готово</a></div>` +
     `<label class="field"><span>Название</span><input id="edit-title" value="${escapeAttr(m.title)}"></label>` +
     `<label class="field"><span>Папка</span>${folderSelect('edit-folder', m.folderId)}</label>` +
+    langFields('edit', m.langs || DEFAULT_LANGS) +
     `<h2 class="edit-cards-title">Карточки</h2><ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol></div>`;
 }
 
@@ -2308,8 +2369,11 @@ function renderEditCrumbs(id) {
 }
 
 // Пустое определение заполняем переводом термина, если пользователь не успел ввести своё
+// Автоперевод — только между разными языками: у модуля терминов определение пишет сам человек
 function fillTranslation(moduleId, cardId, term) {
-  return translate(term).then((tr) => {
+  const langs = langsOf(moduleId);
+  if (langs.term === langs.definition) return Promise.resolve();
+  return translate(term, langs.term, langs.definition).then((tr) => {
     const card = tr && core.module(moduleId)?.cards.find((c) => c.id === cardId);
     if (!card || card.definition) return;
     const input = editorModule() === moduleId && cardRow(cardId)?.querySelector('[data-field="definition"]');
@@ -2337,6 +2401,11 @@ function onEditorChange(e) {
     if (!el.value.trim()) { el.value = core.module(id).title; return; }
     core.updateModule(id, { title: el.value });
     renderEditCrumbs(id);
+    return;
+  }
+  if (el.id === 'edit-term-lang' || el.id === 'edit-def-lang') {
+    core.updateModule(id, { langs: { [el.id === 'edit-term-lang' ? 'term' : 'definition']: el.value } });
+    store.set('new-langs', core.module(id).langs);
     return;
   }
   if (el.id === 'edit-folder') {
@@ -2563,7 +2632,9 @@ function onNewModule(e) {
   e.preventDefault();
   const titleInput = $('new-title');
   if (!titleInput.value.trim()) { titleInput.value = ''; titleInput.reportValidity(); return; }
-  const m = core.createModule({ title: titleInput.value, folderId: $('new-folder').value });
+  const langs = readLangs('new');
+  store.set('new-langs', langs); // следующий модуль — с теми же языками
+  const m = core.createModule({ title: titleInput.value, folderId: $('new-folder').value, langs });
   location.hash = `#/module/${m.id}/edit`;
 }
 
@@ -2651,13 +2722,30 @@ function loadVoices() {
   if (cur) select.value = cur.name;
 }
 
-function speakText(text) {
-  if (!('speechSynthesis' in window)) return;
+// Голос языка: для английского — выбранный в настройках набора, для других — самый живой из голосов браузера
+function voiceFor(lang) {
+  if (lang === 'en') return currentVoice();
+  return speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(lang))
+    .sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
+}
+
+// auto — озвучка сама по себе, а не по нажатию: без голоса нужного языка молчим без предупреждения.
+// Чужой голос прочитал бы, например, эстонский с английским акцентом — поэтому честно говорим, что голоса нет
+const warnedNoVoice = new Set();
+function speakText(text, lang = 'en', auto = false) {
+  if (!('speechSynthesis' in window) || !text) return;
+  const voice = voiceFor(lang);
+  if (!voice && lang !== 'en' && speechSynthesis.getVoices().length) {
+    if (!auto && !warnedNoVoice.has(lang)) {
+      warnedNoVoice.add(lang);
+      toast(`В этом браузере нет голоса для языка «${LANGS[lang]?.name || lang}». Попробуйте Microsoft Edge`, 'volume');
+    }
+    return;
+  }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  const voice = currentVoice();
   if (voice) u.voice = voice;
-  u.lang = voice ? voice.lang : 'en-US';
+  u.lang = voice ? voice.lang : LANGS[lang]?.speech || 'en-US';
   u.rate = store.get('rate', 0.9);
   // Chrome иногда «проглатывает» фразу, если speak вызвать сразу после cancel
   setTimeout(() => speechSynthesis.speak(u), 60);

@@ -259,6 +259,19 @@ test('свой модуль: переименовать, перенести в �
   assert.equal(core.module(m.id), null);
 });
 
+test('языки модуля: задаются при создании и меняются по одной стороне', () => {
+  const core = makeCore();
+  const f = core.createFolder('A');
+  const terms = core.createModule({ title: 'Автомобиль', folderId: f.id, langs: { term: 'ru', definition: 'ru' } });
+  assert.deepEqual(core.module(terms.id).langs, { term: 'ru', definition: 'ru' });
+  const m = core.createModule({ title: 'Eesti', folderId: f.id, langs: { term: 'et' } });
+  assert.deepEqual(core.module(m.id).langs, { term: 'et', definition: 'ru' });
+  core.updateModule(m.id, { langs: { definition: 'en' } });
+  assert.deepEqual(core.module(m.id).langs, { term: 'et', definition: 'en' });
+  assert.throws(() => core.updateModule(m.id, { langs: { term: 'English' } }));
+  assert.throws(() => core.createModule({ title: 'X', folderId: f.id, langs: { term: '' } }));
+});
+
 test('удаление папки удаляет и её модули', () => {
   const core = makeCore();
   const f = core.createFolder('Папка');

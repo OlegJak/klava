@@ -86,6 +86,18 @@
     return card;
   }
 
+  // Языки сторон карточки: { term, definition } — коды языков вроде 'en'; меняются по одному
+  function moduleLangs(base, changes = {}) {
+    const langs = { ...base };
+    for (const side of ['term', 'definition']) {
+      if (!(side in changes)) continue;
+      const code = changes[side];
+      if (typeof code !== 'string' || !/^[a-z]{2,3}$/.test(code)) throw new Error(`Неверный код языка: ${code}`);
+      langs[side] = code;
+    }
+    return langs;
+  }
+
   // Системная папка «Своё»: в ней «Мои слова»; её нельзя переименовать или удалить, но можно класть туда модули
   const OWN_FOLDER = { id: 'own', title: 'Своё' };
   // «Мои слова» — свой модуль с постоянным id: туда «+ В словарь» складывает слова. Удалить его нельзя
@@ -324,18 +336,21 @@
         own.modules = own.modules.filter((m) => m.folderId !== id);
       }),
 
-      createModule: ({ title: name, folderId }) => editOwn((own) => {
+      // langs — языки сторон карточки (по умолчанию английский термин и русское определение);
+      // одинаковые языки — модуль терминов с объяснениями, например «коленвал — …»
+      createModule: ({ title: name, folderId, langs }) => editOwn((own) => {
         if (!folderExists(own, folderId)) throw new Error(`Нет папки ${folderId}`);
-        const m = { id: `m_${newId()}`, title: title(name), folderId, langs: { term: 'en', definition: 'ru' }, cards: [] };
+        const m = { id: `m_${newId()}`, title: title(name), folderId, langs: moduleLangs({ term: 'en', definition: 'ru' }, langs), cards: [] };
         own.modules.push(m);
         return ownView(m);
       }),
-      // Переименовать и/или перенести в другую папку
+      // Переименовать, перенести в другую папку и/или сменить языки сторон
       updateModule: (id, changes) => editOwn((own) => {
         const m = ownModule(own, id);
         if ('folderId' in changes && !folderExists(own, changes.folderId)) throw new Error(`Нет папки ${changes.folderId}`);
         if ('title' in changes) m.title = title(changes.title);
         if ('folderId' in changes) m.folderId = changes.folderId;
+        if ('langs' in changes) m.langs = moduleLangs(m.langs || { term: 'en', definition: 'ru' }, changes.langs);
       }),
       deleteModule: (id) => editOwn((own) => {
         ownModule(own, id);
