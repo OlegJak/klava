@@ -112,6 +112,8 @@ button { padding: 6px 14px; cursor: pointer; }
   font-size: 14px; color: var(--muted);
 }
 .crumbs:empty { display: none; }
+.crumb-home { display: inline-flex; align-items: center; gap: 5px; }
+.crumb-home .i { width: 15px; height: 15px; }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--accent); }
 .crumbs span:last-child:not(.crumb-sep) { color: var(--text); }
@@ -1467,8 +1469,6 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
   /* крошки — одной строкой с прокруткой */
   .crumbs { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; padding-top: 12px; scrollbar-width: none; }
   .crumbs::-webkit-scrollbar { display: none; }
-  /* одна крошка повторяет заголовок страницы — на телефоне не нужна */
-  .crumbs:not(:has(.crumb-sep)) { display: none; }
 }
 /* Окно «Озвучка» */
 .voice-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; }

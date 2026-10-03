@@ -2346,11 +2346,12 @@ function renderEditModule(id) {
     `<h2 class="edit-cards-title">Карточки</h2><ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol></div>`;
 }
 
-// Хлебные крошки над страницей: папка › модуль
+// Хлебные крошки под шапкой: Главная › папка › модуль. На самой главной их нет
 function renderCrumbs(items) {
-  $('crumbs').innerHTML = items.map(([href, title], i) =>
-    (i ? '<span class="crumb-sep">›</span>' : '') +
-    (href ? `<a href="${href}">${escapeHtml(title)}</a>` : `<span>${escapeHtml(title)}</span>`)).join('');
+  const home = `<a class="crumb-home" href="#/">${icon('home')}Главная</a>`;
+  $('crumbs').innerHTML = items.length ? home + items.map(([href, title]) =>
+    '<span class="crumb-sep">›</span>' +
+    (href ? `<a href="${href}">${escapeHtml(title)}</a>` : `<span>${escapeHtml(title)}</span>`)).join('') : '';
 }
 
 // Режимы-страницы по колоде (модулю или «Сегодня»)
