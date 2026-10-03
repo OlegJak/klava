@@ -2427,6 +2427,7 @@ function route() {
   $('trainer').hidden = !onTrainer;
   $('page').hidden = onTrainer;
   scrollTo(0, 0);
+  renderModeSwitch(!guest && !onTrainer && MODE_NAMES[r.screen] ? r.id : null, r.screen);
   if (guest) {
     if (location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
     renderCrumbs([]);
@@ -2472,6 +2473,29 @@ function route() {
     renderCrumbs([]);
     $('page-body').innerHTML = renderHome();
   }
+}
+
+// Под карточками, заучиванием, тестом и подбором пар — остальные режимы той же колоды.
+// Блок можно скрыть; выбор запоминается
+const MODES = [
+  ['cards', 'cards', 'Карточки', 'Переворачивать и отмечать «знаю / не знаю»'],
+  ['learn', 'target', 'Заучивание', 'Выбор из вариантов, потом ввод ответа'],
+  ['test', 'test', 'Тест', 'Вопросы разных типов и оценка в конце'],
+  ['match', 'match', 'Подбор пар', 'Соединить термины с переводами на время'],
+  ['type', 'keyboard', 'Набор', 'Печатать слова и фразы, диктант, перевод на английский'],
+];
+function renderModeSwitch(deckId, current) {
+  const el = $('mode-switch');
+  el.hidden = !deckId;
+  if (!deckId) { el.innerHTML = ''; return; }
+  const hidden = store.get('other-modes-hidden', false);
+  const modes = MODES.filter(([m]) => m !== current && (m !== 'type' || canTypeDeck(deckId)));
+  el.innerHTML = '<div class="mode-switch-head">' + (hidden ? '' : '<h2>Другие режимы</h2>') +
+    `<button class="pill-btn" data-act="toggle-modes">${icon(hidden ? 'eye' : 'eye-off')} ${hidden ? 'Показать другие режимы' : 'Скрыть другие режимы'}</button></div>` +
+    (hidden ? '' : '<div class="modes">' + modes.map(([m, iconName, title, sub]) =>
+      `<a class="mode-btn" data-mode="${m}" href="${deckHref(deckId)}/${m}"><span class="mode-icon">${icon(iconName)}</span>` +
+      `<span class="tile-text"><b>${title}</b><small>${sub}</small></span></a>`).join('') + '</div>');
+  el.classList.toggle('collapsed', hidden);
 }
 
 function openTrainer(id) {
@@ -3132,6 +3156,12 @@ function initPages() {
   initFlashSwipe();
   initTileMenu();
   initPickers();
+  $('mode-switch').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-act="toggle-modes"]')) return;
+    store.set('other-modes-hidden', !store.get('other-modes-hidden', false));
+    const r = parseRoute();
+    renderModeSwitch(r.id, r.screen);
+  });
   $('page-body').addEventListener('change', onTermInput);
   $('page-body').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.closest('.term-input')) return;
