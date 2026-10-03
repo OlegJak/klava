@@ -1031,8 +1031,9 @@ function lessonBadge(id, cls = '') {
 }
 
 // extra — что-то под подписью, например полоска прогресса; cls — дополнительный класс плитки
-const tile = (href, iconHtml, title, sub, extra = '', cls = '') =>
-  `<a class="tile ${cls}" href="${href}"><span class="tile-icon">${iconHtml}</span>` +
+// attrs — data-tile-module / data-tile-folder: по ним меню плитки (правая кнопка мыши) знает, что это
+const tile = (href, iconHtml, title, sub, extra = '', cls = '', attrs = '') =>
+  `<a class="tile ${cls}" href="${href}"${attrs}><span class="tile-icon">${iconHtml}</span>` +
   `<span class="tile-text"><b>${escapeHtml(title)}</b><small>${sub}</small>${extra}</span></a>`;
 const dueNote = (n) => (n ? ` · <span class="due-count">ждут: ${n}</span>` : '');
 // Полоска «выучено X%»: показываем, когда модуль уже начат
@@ -1044,12 +1045,14 @@ const lessonTile = (id) => {
   const l = lessonInfo(id);
   if (SPECIAL[id]) return tile(lessonHref(id), lessonBadge(id), l.title, lessonCount(id));
   const s = core.moduleStats(id);
-  return tile(lessonHref(id), lessonBadge(id), l.title, lessonCount(id) + dueNote(s.due), progressBar(s));
+  return tile(lessonHref(id), lessonBadge(id), l.title, lessonCount(id) + dueNote(s.due), progressBar(s), '',
+    ` data-tile-module="${escapeAttr(id)}"`);
 };
 const folderTile = (f) => {
   const ids = folderLessons(f.id);
   return tile(`#/folder/${f.id}`, icon('folder'), f.title,
-    plural(ids.length, 'модуль', 'модуля', 'модулей') + dueNote(core.dueCount(f.id)), '', f.builtIn ? '' : 'own');
+    plural(ids.length, 'модуль', 'модуля', 'модулей') + dueNote(core.dueCount(f.id)), '', f.builtIn ? '' : 'own',
+    ` data-tile-folder="${escapeAttr(f.id)}"`);
 };
 const tilesSection = (title, tiles, actions = '') =>
   `<section class="tiles-section"><div class="section-head"><h2>${escapeHtml(title)}</h2>${actions}</div>` +
@@ -1072,18 +1075,21 @@ function toast(text, iconName = 'check') {
 
 // ---------- Окна вопросов вместо prompt и confirm браузера ----------
 // openDialog → Promise: с полем ввода — введённый текст или null, без поля — true / false
-function openDialog({ title, text = '', input = null, ok = 'Готово', danger = false }) {
+// choices — [[значение, подпись], …]: вместо поля ввода список, результат — выбранное значение
+function openDialog({ title, text = '', input = null, choices = null, value = '', ok = 'Готово', danger = false }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.className = 'dialog';
     d.innerHTML = `<form class="dialog-body"><h2>${escapeHtml(title)}</h2>` +
       (text ? `<p>${escapeHtml(text)}</p>` : '') +
       (input ? `<input class="dialog-input" value="${escapeAttr(input.value || '')}" placeholder="${escapeAttr(input.placeholder || '')}" maxlength="80" enterkeyhint="done">` : '') +
+      (choices ? `<select class="dialog-input">${choices.map(([v, label]) =>
+        `<option value="${escapeAttr(v)}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select>` : '') +
       '<div class="dialog-actions"><button type="button" class="pill-btn" data-dialog="cancel">Отмена</button>' +
       `<button class="primary-btn${danger ? ' danger' : ''}">${escapeHtml(ok)}</button></div></form>`;
     document.body.append(d);
     const field = d.querySelector('.dialog-input');
-    const cancel = () => finish(input ? null : false);
+    const cancel = () => finish(input || choices ? null : false);
     function finish(result) {
       d.close();
       d.remove();
@@ -1098,7 +1104,7 @@ function openDialog({ title, text = '', input = null, ok = 'Готово', dange
       finish(field ? field.value.trim() : true);
     });
     d.showModal();
-    if (field) { field.focus(); field.select(); }
+    if (field && input) { field.focus(); field.select(); }
   });
 }
 const askText = (title, { value = '', placeholder = '', ok = 'Готово' } = {}) => openDialog({ title, input: { value, placeholder }, ok });
@@ -2702,34 +2708,15 @@ function onPageAction(e) {
       toast('Папка создана', 'folder');
     });
   } else if (act === 'rename-folder') {
-    askText('Переименовать папку', { value: folderOf(r.id).title, ok: 'Сохранить' }).then((name) => {
-      if (name) { core.renameFolder(r.id, name); route(); }
-    });
+    renameFolder(r.id);
   } else if (act === 'delete-folder') {
-    const n = core.modules(r.id).length;
-    const remove = () => {
-      core.deleteFolder(r.id);
-      location.hash = '#/';
-      toast('Папка удалена', 'trash');
-    };
-    if (!n) remove();
-    else askConfirm(`Удалить папку «${folderOf(r.id).title}»?`, `Вместе с ней удалятся ${plural(n, 'модуль', 'модуля', 'модулей')}.`)
-      .then((yes) => { if (yes) remove(); });
+    deleteFolder(r.id);
   } else if (act === 'delete-module') {
-    const l = lessonInfo(r.id);
-    askConfirm(`Удалить модуль «${l.title}»?`, 'Все карточки модуля удалятся.').then((yes) => {
-      if (!yes) return;
-      core.deleteModule(r.id);
-      location.hash = `#/folder/${l.group}`;
-      toast('Модуль удалён', 'trash');
-    });
+    deleteModule(r.id);
   } else if (act === 'copy-module') {
-    location.hash = `#/module/${core.copyModule(r.id).id}/edit`;
-    toast('Копия создана — можно править', 'copy');
+    copyModule(r.id);
   } else if (act === 'hide-module') {
-    core.hideModule(r.id);
-    location.hash = `#/folder/${lessonInfo(r.id).group}`;
-    toast('Модуль скрыт — он внизу папки', 'eye-off');
+    hideModule(r.id);
   } else if (act === 'show-module') {
     core.showModule(r.id);
     route();
@@ -2739,6 +2726,182 @@ function onPageAction(e) {
   } else if (act.startsWith('card-')) {
     onEditorCardAction(act, btn.closest('.edit-card').dataset.card);
   }
+}
+
+// ---------- Действия с модулями и папками ----------
+// Вызываются кнопками на странице модуля или папки и из меню плитки. Если удалили то, что сейчас открыто, —
+// уходим на уровень выше, иначе просто перерисовываем страницу
+const viewing = (id) => parseRoute().id === id;
+
+function renameFolder(id) {
+  askText('Переименовать папку', { value: folderOf(id).title, ok: 'Сохранить' }).then((name) => {
+    if (name) { core.renameFolder(id, name); route(); }
+  });
+}
+
+function deleteFolder(id) {
+  const n = core.modules(id).length;
+  const remove = () => {
+    core.deleteFolder(id);
+    if (viewing(id)) location.hash = '#/'; else route();
+    toast('Папка удалена', 'trash');
+  };
+  if (!n) remove();
+  else askConfirm(`Удалить папку «${folderOf(id).title}»?`, `Вместе с ней удалятся ${plural(n, 'модуль', 'модуля', 'модулей')}.`)
+    .then((yes) => { if (yes) remove(); });
+}
+
+function deleteModule(id) {
+  const l = lessonInfo(id);
+  askConfirm(`Удалить модуль «${l.title}»?`, 'Все карточки модуля удалятся.').then((yes) => {
+    if (!yes) return;
+    core.deleteModule(id);
+    if (viewing(id)) location.hash = `#/folder/${l.group}`; else route();
+    toast('Модуль удалён', 'trash');
+  });
+}
+
+function copyModule(id) {
+  location.hash = `#/module/${core.copyModule(id).id}/edit`;
+  toast('Копия создана — можно править', 'copy');
+}
+
+function hideModule(id) {
+  core.hideModule(id);
+  if (viewing(id)) location.hash = `#/folder/${lessonInfo(id).group}`; else route();
+  toast('Модуль скрыт — он внизу папки', 'eye-off');
+}
+
+function moveModule(id) {
+  const m = core.module(id);
+  openDialog({
+    title: `Переместить «${m.title}»`, text: 'В какую папку?', ok: 'Переместить',
+    choices: moduleFolders().map((f) => [f.id, f.title]), value: m.folderId,
+  }).then((folderId) => {
+    if (!folderId || folderId === m.folderId) return;
+    core.updateModule(id, { folderId });
+    route();
+    toast(`Модуль в папке «${folderOf(folderId).title}»`, 'folder');
+  });
+}
+
+// ---------- Меню плитки: правая кнопка мыши, на телефоне — долгое касание ----------
+function tileMenuItems(el) {
+  const moduleId = el.dataset.tileModule;
+  const folderId = el.dataset.tileFolder;
+  if (moduleId) {
+    const m = core.module(moduleId);
+    if (!m) return null;
+    if (!m.builtIn) {
+      return [['open', 'arrow', 'Открыть'], ['edit', 'pen', 'Изменить'], ['move', 'folder', 'Переместить'],
+        ['copy', 'copy', 'Скопировать'], ...(moduleId === 'mine' ? [] : [['delete', 'trash', 'Удалить']])];
+    }
+    return [['open', 'arrow', 'Открыть'], ['copy', 'copy', 'Скопировать и изменить'],
+      core.isHidden(moduleId) ? ['show', 'eye', 'Вернуть в папку'] : ['hide', 'eye-off', 'Скрыть']];
+  }
+  if (folderId) {
+    const f = folderOf(folderId);
+    if (!f) return null;
+    return [['open', 'arrow', 'Открыть'], ['new-here', 'plus', 'Новый модуль здесь'],
+      ...(f.builtIn ? [] : [['rename', 'pen', 'Переименовать'], ['delete', 'trash', 'Удалить']])];
+  }
+  return null;
+}
+
+function runTileAction(act, el) {
+  const moduleId = el.dataset.tileModule;
+  const folderId = el.dataset.tileFolder;
+  if (act === 'open') location.hash = el.getAttribute('href');
+  else if (moduleId) {
+    ({
+      edit: () => { location.hash = `#/module/${moduleId}/edit`; },
+      move: () => moveModule(moduleId),
+      copy: () => copyModule(moduleId),
+      delete: () => deleteModule(moduleId),
+      hide: () => hideModule(moduleId),
+      show: () => { core.showModule(moduleId); route(); toast('Модуль снова в папке', 'eye'); },
+    })[act]?.();
+  } else if (folderId) {
+    ({
+      'new-here': () => { location.hash = `#/new/${folderId}`; },
+      rename: () => renameFolder(folderId),
+      delete: () => deleteFolder(folderId),
+    })[act]?.();
+  }
+}
+
+const tileMenu = { el: null, tile: null };
+function closeTileMenu() {
+  tileMenu.el?.remove();
+  tileMenu.el = null;
+  tileMenu.tile?.classList.remove('menu-open');
+  tileMenu.tile = null;
+}
+
+function openTileMenu(el, x, y) {
+  const items = tileMenuItems(el);
+  if (!items) return false;
+  closeTileMenu();
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = items.map(([act, iconName, label]) =>
+    `<button role="menuitem" class="ctx-item${act === 'delete' ? ' danger' : ''}" data-ctx="${act}">${icon(iconName)}${label}</button>`).join('');
+  document.body.append(menu);
+  // не вылезать за край экрана
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
+  menu.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-ctx]')?.dataset.ctx;
+    if (!act) return;
+    const target = tileMenu.tile;
+    closeTileMenu();
+    runTileAction(act, target);
+  });
+  tileMenu.el = menu;
+  tileMenu.tile = el;
+  el.classList.add('menu-open');
+  menu.querySelector('button').focus({ preventScroll: true });
+  return true;
+}
+
+function initTileMenu() {
+  const body = $('page-body');
+  const tileAt = (target) => target.closest?.('[data-tile-module], [data-tile-folder]');
+  body.addEventListener('contextmenu', (e) => {
+    const el = tileAt(e.target);
+    if (el && openTileMenu(el, e.clientX, e.clientY)) e.preventDefault();
+  });
+  // долгое касание: на iPhone браузер не присылает contextmenu для ссылок
+  let press = null;
+  let suppressClick = false;
+  body.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const el = tileAt(e.target);
+    if (!el) return;
+    press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+      if (openTileMenu(el, press.x, press.y)) { suppressClick = true; navigator.vibrate?.(10); }
+    }, 500) };
+  });
+  const cancelPress = () => { if (press) clearTimeout(press.timer); press = null; };
+  body.addEventListener('pointermove', (e) => {
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress();
+  });
+  body.addEventListener('pointerup', cancelPress);
+  body.addEventListener('pointercancel', cancelPress);
+  // касание, открывшее меню, не должно ещё и открыть плитку
+  body.addEventListener('click', (e) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    if (tileAt(e.target)) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+  document.addEventListener('pointerdown', (e) => { if (tileMenu.el && !tileMenu.el.contains(e.target)) closeTileMenu(); }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTileMenu(); });
+  addEventListener('scroll', closeTileMenu, { passive: true });
+  addEventListener('resize', closeTileMenu);
+  addEventListener('hashchange', closeTileMenu);
 }
 
 function onNewModule(e) {
@@ -2754,6 +2917,7 @@ function onNewModule(e) {
 
 function initPages() {
   initFlashSwipe();
+  initTileMenu();
   $('page-body').addEventListener('change', onTermInput);
   $('page-body').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.closest('.term-input')) return;
