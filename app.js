@@ -2183,9 +2183,12 @@ function onFlashKey(e) {
 }
 
 // Выбор папки для своего модуля: свои папки, потом встроенные
+// Последний пункт — «+ Новая папка…»: создаёт папку и сразу выбирает её (см. initPickers)
+const NEW_FOLDER = '__new-folder__';
 const folderSelect = (id, selected) =>
   `<select id="${id}">${moduleFolders().map((f) =>
-    `<option value="${escapeAttr(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.title)}</option>`).join('')}</select>`;
+    `<option value="${escapeAttr(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.title)}</option>`).join('')}` +
+  `<option value="${NEW_FOLDER}">+ Новая папка…</option></select>`;
 
 function renderNewModule(folderId) {
   const selected = folderId || moduleFolders()[0].id;
@@ -2776,13 +2779,136 @@ function moveModule(id) {
   const m = core.module(id);
   openDialog({
     title: `Переместить «${m.title}»`, text: 'В какую папку?', ok: 'Переместить',
-    choices: moduleFolders().map((f) => [f.id, f.title]), value: m.folderId,
+    choices: [...moduleFolders().map((f) => [f.id, f.title]), [NEW_FOLDER, '+ Новая папка…']], value: m.folderId,
   }).then((folderId) => {
     if (!folderId || folderId === m.folderId) return;
     core.updateModule(id, { folderId });
     route();
     toast(`Модуль в папке «${folderOf(folderId).title}»`, 'folder');
   });
+}
+
+// ---------- Выпадающие списки: свои вместо системных ----------
+// Настоящий <select> остаётся в разметке и хранит значение (код читает .value и слушает change),
+// а видна кнопка со всплывающим списком. Подключаются сами ко всем спискам в формах и окнах
+const PICKER_SELECTS = '.form select, .dialog select';
+const picker = { list: null, select: null, button: null };
+
+function enhanceSelect(sel) {
+  sel.dataset.enhanced = '1';
+  sel.dataset.prev = sel.value;
+  sel.classList.add('picker-native');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'picker';
+  btn.setAttribute('aria-haspopup', 'listbox');
+  btn.setAttribute('aria-expanded', 'false');
+  const label = sel.closest('label')?.querySelector(':scope > span, :scope > small')?.textContent;
+  if (label) btn.setAttribute('aria-label', label);
+  sel.after(btn);
+  const sync = () => {
+    btn.innerHTML = `<span>${escapeHtml(sel.selectedOptions[0]?.textContent || '')}</span>${icon('chevron')}`;
+  };
+  sync();
+  sel.addEventListener('change', () => { sel.dataset.prev = sel.value; sync(); });
+  sel.addEventListener('picker-sync', sync);
+  btn.addEventListener('click', (e) => {
+    e.preventDefault(); // кнопка внутри <label> — не передавать нажатие спрятанному списку
+    if (picker.select === sel) closePicker();
+    else openPicker(sel, btn);
+  });
+}
+
+function closePicker(focusButton = false) {
+  if (!picker.list) return;
+  picker.list.remove();
+  picker.button.setAttribute('aria-expanded', 'false');
+  if (focusButton) picker.button.focus();
+  Object.assign(picker, { list: null, select: null, button: null });
+}
+
+function openPicker(sel, btn) {
+  closePicker();
+  const list = document.createElement('div');
+  list.className = 'picker-list';
+  list.setAttribute('role', 'listbox');
+  list.innerHTML = [...sel.options].map((o, i) => {
+    const isNew = o.value === NEW_FOLDER;
+    return `<button type="button" role="option" class="picker-option${o.selected ? ' selected' : ''}${isNew ? ' new' : ''}" ` +
+      `data-i="${i}" aria-selected="${o.selected}">${isNew ? icon('plus') : ''}<span>${escapeHtml(isNew ? 'Новая папка…' : o.textContent)}</span>` +
+      `${o.selected ? icon('check', 'check') : ''}</button>`;
+  }).join('');
+  // в открытом окне список кладём внутрь окна — иначе окно перекроет его
+  (sel.closest('dialog') || document.body).append(list);
+  const r = btn.getBoundingClientRect();
+  const width = Math.max(r.width, 200);
+  list.style.width = `${width}px`;
+  list.style.left = `${Math.min(r.left, innerWidth - width - 8)}px`;
+  const below = innerHeight - r.bottom - 8;
+  const h = Math.min(list.scrollHeight, 300);
+  if (below >= h || below >= r.top) { list.style.top = `${r.bottom + 6}px`; list.style.maxHeight = `${Math.max(120, below - 6)}px`; }
+  else { list.style.bottom = `${innerHeight - r.top + 6}px`; list.style.maxHeight = `${Math.max(120, r.top - 14)}px`; }
+  list.addEventListener('click', (e) => {
+    const opt = e.target.closest('[data-i]');
+    if (!opt) return;
+    const value = sel.options[Number(opt.dataset.i)].value;
+    closePicker(true);
+    if (value === sel.value) return;
+    sel.value = value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  list.addEventListener('keydown', (e) => {
+    const items = [...list.querySelectorAll('[data-i]')];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+    } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePicker(true); }
+    else if (e.key === 'Tab') closePicker();
+  });
+  Object.assign(picker, { list, select: sel, button: btn });
+  btn.setAttribute('aria-expanded', 'true');
+  (list.querySelector('.selected') || list.querySelector('[data-i]'))?.focus({ preventScroll: true });
+  list.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
+}
+
+function initPickers() {
+  let queued = false;
+  const enhanceAll = () => {
+    queued = false;
+    for (const sel of document.querySelectorAll(PICKER_SELECTS)) if (!sel.dataset.enhanced) enhanceSelect(sel);
+  };
+  new MutationObserver(() => {
+    if (!queued) { queued = true; queueMicrotask(enhanceAll); }
+  }).observe(document.body, { childList: true, subtree: true });
+  enhanceAll();
+  document.addEventListener('pointerdown', (e) => {
+    if (picker.list && !picker.list.contains(e.target) && !picker.button.contains(e.target)) closePicker();
+  }, true);
+  addEventListener('resize', () => closePicker());
+  addEventListener('scroll', (e) => { if (picker.list && !picker.list.contains(e.target)) closePicker(); }, true);
+  addEventListener('hashchange', () => closePicker());
+
+  // «+ Новая папка…» в любом списке папок: спросить название, создать, добавить во все списки папок и выбрать.
+  // Перехватываем до остальных обработчиков, чтобы они не увидели служебное значение
+  document.addEventListener('change', (e) => {
+    const sel = e.target;
+    if (sel.tagName !== 'SELECT' || sel.value !== NEW_FOLDER) return;
+    e.stopImmediatePropagation();
+    sel.value = sel.dataset.prev && sel.dataset.prev !== NEW_FOLDER ? sel.dataset.prev : sel.options[0].value;
+    sel.dispatchEvent(new Event('picker-sync'));
+    askText('Новая папка', { placeholder: 'Например, «Английский B1»', ok: 'Создать' }).then((name) => {
+      if (!name) return;
+      const f = core.createFolder(name);
+      for (const other of document.querySelectorAll('select')) {
+        const last = [...other.options].find((o) => o.value === NEW_FOLDER);
+        if (last) last.before(new Option(f.title, f.id));
+      }
+      sel.value = f.id;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      toast(`Папка «${f.title}» создана`, 'folder');
+    });
+  }, true);
 }
 
 // ---------- Меню плитки: правая кнопка мыши, на телефоне — долгое касание ----------
@@ -2918,6 +3044,7 @@ function onNewModule(e) {
 function initPages() {
   initFlashSwipe();
   initTileMenu();
+  initPickers();
   $('page-body').addEventListener('change', onTermInput);
   $('page-body').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.closest('.term-input')) return;
