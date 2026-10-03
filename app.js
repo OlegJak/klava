@@ -1164,7 +1164,17 @@ function renderLanding() {
     `<b>${title}</b><p>${sub}</p>${tag ? `<span class="land-tag">${tag}</span>` : ''}</article>`;
   const perk = (iconName, title, sub) =>
     `<li class="reveal"><span class="perk-icon">${icon(iconName)}</span><b>${title}</b><small>${sub}</small></li>`;
+  // Сравнение: на компьютере — таблица по строкам, на телефоне — две карточки «Тетрадка» и «Klava»
+  const compare = [
+    ['Повторяете всё подряд или ничего', 'Повторяете только то, что начинаете забывать'],
+    ['Непонятно, что уже выучено', 'Прогресс по каждой карточке в обе стороны'],
+    ['Скучно — бросаете через неделю', 'Пять режимов, игра на время и серии дней'],
+    ['Нет произношения', 'Слова звучат вслух'],
+    ['Тетрадь осталась дома', 'Модули с вами на любом устройстве'],
+  ];
   const row = (bad, good) => `<li><span class="cmp-bad">${icon('x')}${bad}</span><span class="cmp-good">${icon('check')}${good}</span></li>`;
+  const cmpCard = (cls, title, side, iconName) => `<div class="cmp-card ${cls}"><h3>${title}</h3><ul>` +
+    compare.map((pair) => `<li>${icon(iconName)}${pair[side]}</li>`).join('') + '</ul></div>';
   const step = (n, title, sub) => `<li class="reveal"><span class="step-num">${n}</span><b>${title}</b><small>${sub}</small></li>`;
   const faq = (q, a) => `<details class="land-faq-item"><summary>${q}${icon('plus')}</summary><p>${a}</p></details>`;
   const [term, def] = LANDING_DEMO[0];
@@ -1272,12 +1282,13 @@ function renderLanding() {
       '<h2>Тетрадка или Klava</h2>' +
       '<ul class="land-compare reveal">' +
         '<li class="cmp-head"><span>Тетрадка и зубрёжка</span><span>Klava</span></li>' +
-        row('Повторяете всё подряд или ничего', 'Повторяете только то, что начинаете забывать') +
-        row('Непонятно, что уже выучено', 'Прогресс по каждой карточке в обе стороны') +
-        row('Скучно — бросаете через неделю', 'Пять режимов, игра на время и серии дней') +
-        row('Нет произношения', 'Слова звучат вслух') +
-        row('Тетрадь осталась дома', 'Модули с вами на любом устройстве') +
+        compare.map(([bad, good]) => row(bad, good)).join('') +
       '</ul>' +
+      '<div class="cmp-cards reveal">' +
+        cmpCard('bad', 'Тетрадка и зубрёжка', 0, 'x') +
+        '<span class="cmp-vs">vs</span>' +
+        cmpCard('good', `<span class="brand-mark">K</span>Klava`, 1, 'check') +
+      '</div>' +
     '</section>' +
 
     // Как начать
