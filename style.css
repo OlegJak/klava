@@ -1465,6 +1465,27 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
   /* одна крошка повторяет заголовок страницы — на телефоне не нужна */
   .crumbs:not(:has(.crumb-sep)) { display: none; }
 }
+/* Окно «Озвучка» */
+.voice-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.voice-lang { font-weight: 700; }
+.voice-row select {
+  min-width: 0; padding: 10px 12px; font-size: 16px; color: var(--text);
+  background: var(--bg); border: 2px solid var(--line); border-radius: 12px;
+}
+.voice-play { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border-radius: 50%; color: var(--accent); background: var(--accent-soft); }
+.voice-play .i { width: 18px; height: 18px; }
+.voice-none { grid-column: 2 / -1; color: var(--muted); }
+.voice-rate { display: flex; align-items: center; gap: 12px; font-weight: 700; }
+.voice-rate input { flex: 1; accent-color: var(--accent); }
+.dialog .voice-tip { font-size: 13px; line-height: 1.45; }
+.voice-btn { display: grid; place-items: center; padding: 6px; color: var(--muted); }
+.voice-btn .i { width: 20px; height: 20px; }
+.voice-btn:hover { color: var(--accent); }
+@media (max-width: 520px) {
+  .voice-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .voice-lang, .voice-none { grid-column: 1 / -1; }
+  .voice-lang { margin-bottom: -4px; }
+}
 .demo-card.long .back b { font-size: 20px; font-weight: 700; line-height: 1.3; }
 
 /* Главная на телефоне */

@@ -1581,8 +1581,9 @@ function renderModule(id) {
   const hiddenNow = core.isHidden(id);
   const actions = '<div class="page-actions">' + (own
     ? actionLink(`#/module/${id}/edit`, `${icon('pen')} Изменить`) + actionLink(`#/import/module/${id}`, 'Импорт') +
-      actionBtn('copy-module', 'Скопировать') + (id === 'mine' ? '' : actionBtn('delete-module', 'Удалить', 'danger'))
-    : actionBtn('copy-module', 'Скопировать и изменить') +
+      actionBtn('copy-module', 'Скопировать') + actionBtn('voice-settings', `${icon('volume')} Озвучка`) +
+      (id === 'mine' ? '' : actionBtn('delete-module', 'Удалить', 'danger'))
+    : actionBtn('copy-module', 'Скопировать и изменить') + actionBtn('voice-settings', `${icon('volume')} Озвучка`) +
       (hiddenNow ? actionBtn('show-module', 'Вернуть в папку') : actionBtn('hide-module', 'Скрыть'))) + '</div>';
   const hiddenNote = hiddenNow ? '<p class="empty">Модуль скрыт: в папке его не видно.</p>' : '';
   const mode = (path, icon, title, sub) => {
@@ -1639,7 +1640,8 @@ function renderFlash() {
   const bar = '<div class="flash-bar">' +
     `<div class="seg">${seg('en-ru', dirLabels(flashcards.moduleId)['en-ru'])}${seg('ru-en', dirLabels(flashcards.moduleId)['ru-en'])}</div>` +
     `<label class="radio"><input type="checkbox" id="flash-shuffle"${flashOptions().shuffle ? ' checked' : ''}><span>Перемешать</span></label>` +
-    `<span class="flash-progress">${s.done ? s.total : s.position} / ${s.total}</span></div>` +
+    `<span class="flash-progress">${s.done ? s.total : s.position} / ${s.total}</span>` +
+    `<button class="icon-btn voice-btn" data-act="voice-settings" title="Голос озвучки">${icon('volume')}</button></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.index / s.total) * 100 : 0}%"></span></div>`;
 
   if (s.done) {
@@ -1800,7 +1802,8 @@ function renderLearn() {
   const bar = '<div class="flash-bar">' +
     `<div class="seg">${seg('en-ru', dirLabels(learn.moduleId)['en-ru'])}${seg('ru-en', dirLabels(learn.moduleId)['ru-en'])}</div>` +
     (s.done ? '' : `<span class="learn-round">Раунд ${s.round}</span>`) +
-    `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span></div>` +
+    `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span>` +
+    `<button class="icon-btn voice-btn" data-act="voice-settings" title="Голос озвучки">${icon('volume')}</button></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.mastered / s.total) * 100 : 0}%"></span></div>`;
 
   if (s.done) {
@@ -2651,7 +2654,9 @@ function onPageAction(e) {
   if (!btn) return;
   const act = btn.dataset.act;
   const r = parseRoute();
-  if (act.startsWith('flash-')) {
+  if (act === 'voice-settings') {
+    openVoiceDialog();
+  } else if (act.startsWith('flash-')) {
     onFlashAction(act, btn);
   } else if (act.startsWith('learn-')) {
     onLearnAction(act, btn);
@@ -2778,23 +2783,40 @@ function syncVoiceUi() {
 // «Natural»/«Neural»/«Online» (Edge, Windows 11) → голоса Google (Chrome) → остальные
 let voices = [];
 
+// На iPhone и Mac среди голосов есть «шуточные» (Bad News, Bubbles, Zarvox…) и роботы Eloquence (Eddy, Flo,
+// Grandpa…) — раньше при равных очках первым по алфавиту оказывался Albert или Bad News. Теперь они в самом конце,
+// а впереди — улучшенные (Premium, Enhanced, Natural) и известные хорошие голоса
+const JOKE_VOICES = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Fred|Good News|Hysterical|Jester|Junior|Kathy|Organ|Pipe Organ|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/i;
+const GOOD_VOICES = /^(Samantha|Ava|Allison|Susan|Zoe|Evan|Nathan|Tom|Joelle|Noelle|Daniel|Serena|Kate|Oliver|Arthur|Martha|Karen|Lee|Moira|Tessa|Rishi|Milena|Yuri|Katya|Anu|Kert|Aria|Jenny|Guy|Libby|Sonia|Ryan|Svetlana|Dmitry)\b/i;
 function voiceScore(v) {
+  const id = `${v.name} ${v.voiceURI}`;
   let s = 0;
-  if (/natural|neural|online|premium|enhanced/i.test(v.name)) s += 4;
+  if (JOKE_VOICES.test(v.name)) s -= 20;
+  if (/natural|neural|online|premium/i.test(id)) s += 6;
+  if (/enhanced/i.test(id)) s += 5;
+  if (/compact/i.test(id)) s -= 2; // сжатый голос iPhone — самый простой
+  if (GOOD_VOICES.test(v.name.replace(/^(Microsoft|Google|Apple)\s+/, ''))) s += 4;
   if (/google/i.test(v.name)) s += 3;
   if (/^en[-_](US|GB)/i.test(v.lang)) s += 1;
-  if (!v.localService) s += 1;
+  if (/^en[-_]US/i.test(v.lang)) s += 1; // при прочих равных — американский: Samantha, а не Daniel
+  if (v.default) s += 1;
   return s;
 }
 
+// Голоса языка, лучшие — первыми
+const voicesFor = (lang) => speechSynthesis.getVoices()
+  .filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith(`${lang}-`) || v.lang.toLowerCase() === lang)
+  .sort((a, b) => voiceScore(b) - voiceScore(a) || a.name.localeCompare(b.name));
+// Выбранный голос языка хранится в настройках (английский — под прежним ключом voice)
+const voiceKey = (lang) => (lang === 'en' ? 'voice' : `voice-${lang}`);
+const voiceName = (v) => v.name.replace(/^(Microsoft|Google|Apple)\s+/, '').replace(/\s*[-–]\s*(English|Russian|Estonian).*$/i, '');
+
 function currentVoice() {
-  return voices.find((v) => v.name === store.get('voice', '')) || voices[0] || null;
+  return voiceFor('en');
 }
 
 function loadVoices() {
-  voices = speechSynthesis.getVoices()
-    .filter((v) => /^en[-_]/i.test(v.lang))
-    .sort((a, b) => voiceScore(b) - voiceScore(a) || a.name.localeCompare(b.name));
+  voices = voicesFor('en');
   const select = $('voice');
   const cur = currentVoice();
   select.innerHTML = voices.length
@@ -2806,11 +2828,47 @@ function loadVoices() {
   if (cur) select.value = cur.name;
 }
 
-// Голос языка: для английского — выбранный в настройках набора, для других — самый живой из голосов браузера
+// Голос языка: выбранный человеком (окно «Озвучка» или настройки набора), иначе — лучший из голосов браузера
 function voiceFor(lang) {
-  if (lang === 'en') return currentVoice();
-  return speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(lang))
-    .sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
+  const list = voicesFor(lang);
+  return list.find((v) => v.name === store.get(voiceKey(lang), '')) || list[0] || null;
+}
+
+// Окно «Озвучка»: голос для каждого языка, кнопка прослушать и скорость
+const VOICE_SAMPLES = { en: 'Hello! This is how I sound.', ru: 'Привет! Вот так я звучу.', et: 'Tere! Nii ma kõlan.' };
+function openVoiceDialog() {
+  if (!('speechSynthesis' in window)) { toast('Этот браузер не умеет озвучивать текст', 'volume'); return; }
+  const d = document.createElement('dialog');
+  d.className = 'dialog';
+  const row = (lang) => {
+    const list = voicesFor(lang);
+    const cur = voiceFor(lang);
+    return `<div class="voice-row"><span class="voice-lang">${LANGS[lang].name}</span>` + (list.length
+      ? `<select data-voice-lang="${lang}">${list.map((v) =>
+        `<option value="${escapeAttr(v.name)}"${v === cur ? ' selected' : ''}>${escapeHtml(voiceName(v))}</option>`).join('')}</select>` +
+        `<button type="button" class="icon-btn voice-play" data-voice-play="${lang}" title="Прослушать">${icon('play')}</button>`
+      : '<small class="voice-none">Нет голоса в этом браузере</small>') + '</div>';
+  };
+  d.innerHTML = '<div class="dialog-body"><h2>Озвучка</h2>' +
+    Object.keys(LANGS).map(row).join('') +
+    `<label class="voice-rate"><span>Скорость</span><input type="range" min="0.6" max="1.2" step="0.05" value="${store.get('rate', 0.9)}"></label>` +
+    '<p class="voice-tip">Голоса берутся из телефона или компьютера. На iPhone самые живые — улучшенные: Настройки → Универсальный доступ → ' +
+    'Устный контент → Голоса → выберите язык и скачайте голос с пометкой «улучшенный» или Premium, потом откройте это окно снова.</p>' +
+    '<div class="dialog-actions"><button type="button" class="primary-btn" data-dialog="close">Готово</button></div></div>';
+  document.body.append(d);
+  const close = () => { d.close(); d.remove(); loadVoices(); };
+  d.addEventListener('change', (e) => {
+    const lang = e.target.dataset.voiceLang;
+    if (lang) { store.set(voiceKey(lang), e.target.value); speakText(VOICE_SAMPLES[lang], lang); }
+    if (e.target.type === 'range') { store.set('rate', Number(e.target.value)); speakText(VOICE_SAMPLES.en); }
+  });
+  d.addEventListener('click', (e) => {
+    const lang = e.target.closest('[data-voice-play]')?.dataset.voicePlay;
+    if (lang) speakText(VOICE_SAMPLES[lang], lang);
+    else if (e.target.closest('[data-dialog="close"]') || e.target === d) close();
+  });
+  d.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  d.showModal();
 }
 
 // auto — озвучка сама по себе, а не по нажатию: без голоса нужного языка молчим без предупреждения.
