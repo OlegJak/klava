@@ -1106,7 +1106,234 @@ function renderToday() {
       `<span class="card-def">${escapeHtml(c.definition || '—')}</span></li>`).join('')}</ol>`;
 }
 
-// Стартовый экран для новичка: своих модулей со словами ещё нет — предлагаем создать, импортировать или войти
+// ---------- Главная для гостя ----------
+// Без входа ничего сделать нельзя: рассказываем о платформе и зовём войти через Google.
+// Карточку-пример на первом экране можно попробовать без входа
+const LANDING_DEMO = [
+  ['serendipity', 'счастливая случайность'],
+  ['breakthrough', 'прорыв'],
+  ['to grasp', 'ухватить суть, понять'],
+  ['reliable', 'надёжный'],
+];
+
+function renderLanding() {
+  const cta = (text, cls = '') => `<button class="cta-btn ${cls}" data-act="sign-in">${text}${icon('arrow')}</button>`;
+  const stat = (n, suffix, title, sub) =>
+    `<div class="land-stat"><b><span data-count="${n}">${n}</span>${suffix}</b><span>${title}</span><small>${sub}</small></div>`;
+  const mode = (m, iconName, title, sub, tag = '') =>
+    `<article class="land-mode reveal" data-mode="${m}"><span class="mode-icon">${icon(iconName)}</span>` +
+    `<b>${title}</b><p>${sub}</p>${tag ? `<span class="land-tag">${tag}</span>` : ''}</article>`;
+  const perk = (iconName, title, sub) =>
+    `<li class="reveal"><span class="perk-icon">${icon(iconName)}</span><b>${title}</b><small>${sub}</small></li>`;
+  const row = (bad, good) => `<li><span class="cmp-bad">${icon('x')}${bad}</span><span class="cmp-good">${icon('check')}${good}</span></li>`;
+  const step = (n, title, sub) => `<li class="reveal"><span class="step-num">${n}</span><b>${title}</b><small>${sub}</small></li>`;
+  const faq = (q, a) => `<details class="land-faq-item"><summary>${q}${icon('plus')}</summary><p>${a}</p></details>`;
+  const [term, def] = LANDING_DEMO[0];
+
+  return '<div class="landing">' +
+    // Первый экран: обещание, кнопка входа и живая карточка
+    '<section class="land-hero">' +
+      '<div class="land-hero-text">' +
+        `<span class="land-eyebrow">${icon('sparkle')} Бесплатная платформа для запоминания слов</span>` +
+        '<h1>Английские слова — <span class="land-grad">в память навсегда</span>, а не до завтра</h1>' +
+        '<p>Карточки, тесты, игра на скорость и тренажёр набора в одном месте. Klava сама считает, какие слова ' +
+        'повторить сегодня, — 10 минут в день, и они переходят в долговременную память.</p>' +
+        `<div class="land-cta">${cta('Начать бесплатно')}<button class="ghost-btn" data-scroll="land-how">Как это работает</button></div>` +
+        `<ul class="land-trust"><li>${icon('check')}Бесплатно</li><li>${icon('check')}Без рекламы</li><li>${icon('check')}Вход через Google за 5 секунд</li></ul>` +
+      '</div>' +
+      '<div class="land-demo">' +
+        `<span class="land-chip chip-a">${icon('flame')}Серия 12 дней</span>` +
+        `<span class="land-chip chip-b">${icon('calendar')}Повтор через 3 дня</span>` +
+        `<div class="demo-label">${icon('play')}Попробуйте: нажмите на карточку</div>` +
+        `<button class="demo-card" id="demo-card" aria-label="Перевернуть карточку"><span class="demo-inner">` +
+          `<span class="demo-face front"><small>Термин</small><b id="demo-term">${term}</b></span>` +
+          `<span class="demo-face back"><small>Перевод</small><b id="demo-def">${def}</b></span>` +
+        '</span></button>' +
+        '<div class="demo-actions" id="demo-actions">' +
+          `<button class="demo-btn bad" data-demo="0">${icon('x')}Don’t know</button>` +
+          `<span class="demo-count" id="demo-count">1 / ${LANDING_DEMO.length}</span>` +
+          `<button class="demo-btn ok" data-demo="1">${icon('check')}Know</button>` +
+        '</div>' +
+        '<div class="demo-progress"><span id="demo-bar"></span></div>' +
+      '</div>' +
+    '</section>' +
+
+    // Цифры
+    '<section class="land-stats reveal">' +
+      stat(5, '', 'режимов обучения', 'карточки, заучивание, тест, пары, набор') +
+      stat(5, '', 'ступеней повторения', 'через 1, 3, 7, 14 и 30 дней') +
+      stat(2, '', 'направления', 'с английского и на английский') +
+      stat(100, '%', 'ваши данные', 'модули и прогресс видите только вы') +
+      stat(0, '&nbsp;₽', 'стоимость', 'без подписки и платных уровней') +
+    '</section>' +
+
+    // Почему забываем и как помогает интервальное повторение
+    '<section class="land-science">' +
+      '<div class="land-science-text reveal">' +
+        '<span class="land-kicker">Почему слова забываются</span>' +
+        '<h2>Без повторения мозг стирает новое за считанные дни</h2>' +
+        '<p>Это кривая забывания — её ещё в XIX веке описал психолог Герман Эббингауз. Зубрёжка накануне не спасает: ' +
+        'через неделю от выученного остаются обрывки.</p>' +
+        '<p>Секрет — повторять слово именно тогда, когда оно начинает ускользать. С каждым повтором память держит его ' +
+        'дольше. <b>Klava считает эти моменты за вас</b> и каждый день собирает подборку «Повторить сегодня».</p>' +
+        '<ol class="land-boxes">' + [1, 3, 7, 14, 30].map((d, i) =>
+          `<li style="--i:${i}"><b>${d}</b><small>${plural(d, 'день', 'дня', 'дней').replace(/^\d+ /, '')}</small></li>`).join('') + '</ol>' +
+      '</div>' +
+      '<figure class="land-curve reveal">' +
+        '<svg viewBox="0 0 560 280" role="img" aria-label="Кривая забывания без повторения и с повторением">' +
+          '<path class="curve-grid" d="M40 30H540M40 90H540M40 150H540M40 210H540"/>' +
+          '<path class="curve-axis" d="M40 20V250H545"/>' +
+          '<path class="curve-forget" d="M40 30C70 160 130 205 540 232"/>' +
+          '<path class="curve-klava" d="M40 30Q46 78 57 92L57 30Q68 66 90 80L90 30Q112 58 157 66L157 30Q195 48 273 54L273 30Q360 40 540 43"/>' +
+          [57, 90, 157, 273].map((x) => `<circle class="curve-dot" cx="${x}" cy="30" r="5"/>`).join('') +
+          '<text x="540" y="22" text-anchor="end" class="curve-label klava">с Klava</text>' +
+          '<text x="540" y="212" text-anchor="end" class="curve-label forget">без повторения</text>' +
+          '<text x="34" y="34" text-anchor="end" class="curve-tick">100%</text>' +
+          '<text x="34" y="254" text-anchor="end" class="curve-tick">0</text>' +
+          '<text x="540" y="272" text-anchor="end" class="curve-tick">30 дней</text>' +
+        '</svg>' +
+        '<figcaption>Точки — повторения, которые назначает Klava</figcaption>' +
+      '</figure>' +
+    '</section>' +
+
+    // Режимы
+    '<section class="land-section">' +
+      '<span class="land-kicker">Пять способов выучить слово</span>' +
+      '<h2>Учите так, как удобно именно вам</h2>' +
+      '<div class="land-modes">' +
+        mode('cards', 'cards', 'Карточки', 'Переворачивайте и отмечайте «знаю / не знаю». Смахивайте влево и вправо на телефоне.', 'Быстрое знакомство') +
+        mode('learn', 'target', 'Заучивание', 'Сначала выбор из вариантов, потом ввод ответа. Ошибки возвращаются, пока не выучите.', 'Самый эффективный') +
+        mode('test', 'test', 'Тест', 'Вопросы разных типов и оценка в конце — проверьте себя перед экзаменом.') +
+        mode('match', 'match', 'Подбор пар', 'Соединяйте слова с переводами на время и бейте собственный рекорд.', 'Игра') +
+        mode('type', 'keyboard', 'Набор текста', 'Печатайте слова и фразы, пишите диктант на слух и переводите на английский.', 'Только в Klava') +
+      '</div>' +
+    '</section>' +
+
+    // Всё остальное
+    '<section class="land-section">' +
+      '<span class="land-kicker">И ещё десяток мелочей</span>' +
+      '<h2>Всё, чтобы учить было легко</h2>' +
+      '<ul class="land-perks">' +
+        perk('download', 'Импорт из Quizlet', 'Перенесите свои модули за минуту — вставьте экспорт или таблицу') +
+        perk('translate', 'Автоперевод', 'Введите слово — перевод подставится сам') +
+        perk('image', 'Картинки', 'Добавьте изображение к слову — запоминается в разы легче') +
+        perk('volume', 'Озвучка', 'Каждое слово и фраза звучат с правильным произношением') +
+        perk('star', 'Избранное', 'Отмечайте трудные слова и учите только их') +
+        perk('folder', 'Папки и модули', 'Раскладывайте слова по темам, урокам и экзаменам') +
+        perk('chart', 'Статистика и серии', 'Сколько выучено, сколько повторить и сколько дней подряд вы учитесь') +
+        perk('phone', 'На всех устройствах', 'Начали на компьютере — продолжили в телефоне, прогресс общий') +
+        perk('moon', 'Тёмная тема', 'Удобно учить вечером, глаза не устают') +
+      '</ul>' +
+    '</section>' +
+
+    // Сравнение
+    '<section class="land-section">' +
+      '<span class="land-kicker">Честное сравнение</span>' +
+      '<h2>Тетрадка со словами или Klava</h2>' +
+      '<ul class="land-compare reveal">' +
+        '<li class="cmp-head"><span>Тетрадка и зубрёжка</span><span>Klava</span></li>' +
+        row('Повторяете всё подряд или ничего', 'Повторяете только то, что начинаете забывать') +
+        row('Непонятно, что уже выучено', 'Прогресс по каждому слову в обе стороны') +
+        row('Скучно — бросаете через неделю', 'Пять режимов, игра на время и серии дней') +
+        row('Нет произношения', 'Каждое слово звучит вслух') +
+        row('Тетрадь осталась дома', 'Слова с вами на любом устройстве') +
+      '</ul>' +
+    '</section>' +
+
+    // Как начать
+    '<section class="land-section" id="land-how">' +
+      '<span class="land-kicker">Как начать</span>' +
+      '<h2>Три шага — и вы уже учите</h2>' +
+      '<ol class="land-steps">' +
+        step(1, 'Войдите через Google', 'Один клик, без паролей и анкет') +
+        step(2, 'Создайте модуль', 'Добавьте свои слова или импортируйте из Quizlet') +
+        step(3, 'Повторяйте 10 минут в день', 'Klava подскажет, какие слова повторить сегодня') +
+      '</ol>' +
+    '</section>' +
+
+    // Вопросы
+    '<section class="land-section land-faq">' +
+      '<span class="land-kicker">Вопросы</span>' +
+      '<h2>Частые вопросы</h2>' +
+      faq('Это правда бесплатно?', 'Да. Все режимы, модули, папки и повторение доступны бесплатно, без пробного периода и рекламы.') +
+      faq('Зачем входить через Google?', 'Чтобы ваши модули и прогресс сохранялись в облаке и были доступны на любом устройстве. ' +
+        'Пароль придумывать не нужно, Klava получает только вашу почту.') +
+      faq('Кто видит мои слова?', 'Только вы. Данные хранятся в защищённой базе, и доступ к ним есть только у вашего аккаунта.') +
+      faq('У меня уже есть модули в Quizlet', 'Экспортируйте модуль в Quizlet и вставьте текст в Klava — слова и переводы перенесутся за минуту.') +
+      faq('Работает ли на телефоне?', 'Да, сайт подстраивается под экран: карточки можно смахивать пальцем, прогресс общий с компьютером.') +
+    '</section>' +
+
+    // Финальный призыв
+    '<section class="land-final reveal">' +
+      '<h2>Начните сегодня — первые слова запомнятся уже через неделю</h2>' +
+      '<p>Вход занимает 5 секунд. Никаких карт и подписок.</p>' +
+      cta('Войти через Google', 'light') +
+    '</section>' +
+    '<footer class="land-footer"><span class="brand-mark">K</span>Klava — учите английский с удовольствием</footer>' +
+  '</div>';
+}
+
+// Анимации главной: появление блоков при прокрутке, счётчики цифр, карточка-пример
+function initLanding() {
+  const root = $('page-body').querySelector('.landing');
+  const countUp = (el) => {
+    const target = +el.dataset.count;
+    if (reducedMotion() || !target) return;
+    const start = performance.now();
+    (function frame(t) {
+      const k = Math.min(1, (t - start) / 1200);
+      el.textContent = Math.round(target * (1 - (1 - k) ** 3));
+      if (k < 1) requestAnimationFrame(frame);
+    })(start);
+  };
+  const show = (el) => {
+    el.classList.add('shown');
+    el.querySelectorAll('[data-count]').forEach(countUp);
+  };
+  if (!('IntersectionObserver' in window)) root.querySelectorAll('.reveal').forEach(show);
+  else {
+    root.classList.add('animate');
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
+    }, { threshold: .15 });
+    root.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  }
+
+  root.addEventListener('click', (e) => {
+    const to = e.target.closest('[data-scroll]')?.dataset.scroll;
+    if (to) $(to).scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth' });
+  });
+
+  const card = $('demo-card');
+  let i = 0;
+  let known = 0;
+  card.addEventListener('click', () => card.classList.toggle('flipped'));
+  $('demo-actions').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-demo]');
+    if (!btn) return;
+    known += +btn.dataset.demo;
+    i++;
+    $('demo-bar').style.width = `${(i / LANDING_DEMO.length) * 100}%`;
+    card.classList.remove('flipped');
+    card.classList.add(btn.dataset.demo === '1' ? 'out-right' : 'out-left');
+    setTimeout(() => {
+      card.classList.remove('out-right', 'out-left');
+      if (i >= LANDING_DEMO.length) {
+        card.querySelector('.front small').textContent = 'Вы знаете';
+        $('demo-term').textContent = `${known} из ${LANDING_DEMO.length}`;
+        $('demo-def').textContent = 'Войдите и создайте свой модуль';
+        card.classList.add('done');
+        $('demo-actions').innerHTML = `<button class="cta-btn" data-act="sign-in">Создать свой модуль${icon('arrow')}</button>`;
+        if (known === LANDING_DEMO.length) celebrate();
+        return;
+      }
+      [$('demo-term').textContent, $('demo-def').textContent] = LANDING_DEMO[i];
+      $('demo-count').textContent = `${i + 1} / ${LANDING_DEMO.length}`;
+    }, reducedMotion() ? 0 : 260);
+  });
+}
+
+// Стартовый экран для новичка после входа: своих модулей со словами ещё нет — предлагаем создать или импортировать
 function renderWelcome() {
   const action = (attrs, mode, iconName, title, sub) =>
     `<${attrs.href ? 'a' : 'button'} class="mode-btn welcome-card" data-mode="${mode}"` +
@@ -1114,11 +1341,6 @@ function renderWelcome() {
     `><span class="mode-icon">${icon(iconName)}</span><span class="tile-text"><b>${title}</b><small>${sub}</small></span></${attrs.href ? 'a' : 'button'}>`;
   const step = (n, iconName, title, sub) =>
     `<li><span class="step-num">${n}</span><span class="step-icon">${icon(iconName)}</span><b>${title}</b><small>${sub}</small></li>`;
-  const login = cloud.client && !cloud.user
-    ? `<div class="welcome-login">${icon('cloud')}<span><b>Войдите через Google</b>` +
-      '<small>Модули и прогресс будут на всех ваших устройствах — на компьютере и телефоне</small></span>' +
-      '<button class="primary-btn" data-act="sign-in">Войти через Google</button></div>'
-    : '';
   return '<section class="welcome">' +
     '<div class="welcome-hero"><span class="brand-mark big">K</span>' +
     '<h1>Учите слова так, как удобно вам</h1>' +
@@ -1128,7 +1350,7 @@ function renderWelcome() {
     action({ href: '#/new' }, 'cards', 'plus', 'Создать модуль', 'Добавьте слова и переводы — перевод подставится сам') +
     action({ href: '#/import' }, 'learn', 'download', 'Импорт из Quizlet', 'Вставьте экспорт модуля или список из таблицы') +
     action({ 'data-act': 'new-folder' }, 'match', 'folder', 'Создать папку', 'Разложите модули по темам') +
-    '</div>' + login +
+    '</div>' +
     '<h2 class="welcome-title">Как это работает</h2><ol class="welcome-steps">' +
     step(1, 'pen', 'Соберите модуль', 'Своими словами или импортом из Quizlet, с картинками и примерами') +
     step(2, 'cards', 'Учите в режимах', 'Карточки, заучивание, тест, подбор пар и набор текста') +
@@ -2008,10 +2230,21 @@ function route() {
   if (r.screen === 'home' && location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
   if (onTrainer) leaveTrainer();
   stopMatchTimer();
-  onTrainer = r.screen === 'trainer';
+  // без входа — только главная с рассказом о платформе, любой адрес ведёт на неё
+  const guest = !cloud.user;
+  document.body.classList.toggle('guest', guest);
+  $('page-body').classList.toggle('landing-page', guest);
+  onTrainer = !guest && r.screen === 'trainer';
   $('trainer').hidden = !onTrainer;
   $('page').hidden = onTrainer;
   scrollTo(0, 0);
+  if (guest) {
+    if (location.hash.replace(/^#\/?/, '')) history.replaceState(null, '', '#/');
+    renderCrumbs([]);
+    $('page-body').innerHTML = renderLanding();
+    initLanding();
+    return;
+  }
   if (onTrainer) { openTrainer(r.id); return; }
 
   if (r.screen === 'today') {
@@ -2574,7 +2807,6 @@ async function signOut() {
 
 function renderAccount() {
   const el = $('account');
-  if (!cloud.client) { el.innerHTML = ''; return; }
   if (!cloud.user || !cloud.storage) {
     el.innerHTML = '<button class="pill-btn" data-act="sign-in">Войти через Google</button>';
     return;
@@ -2618,7 +2850,8 @@ function initCloud() {
   if (cloud.migrated) toast('Данные этого браузера перенесены в облако', 'cloud');
   document.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'sign-in') signIn();
+    if (act === 'sign-in' && cloud.client) signIn();
+    else if (act === 'sign-in') toast('Вход сейчас недоступен: нет связи с сервером. Обновите страницу', 'alert');
     else if (act === 'sign-out') signOut();
     else if (act === 'cloud-retry') cloud.storage?.flush();
     else if (act === 'cloud-reload') location.reload();
