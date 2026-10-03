@@ -3696,8 +3696,7 @@ function renderAccount() {
     el.innerHTML = '<button class="pill-btn" data-act="sign-in">Войти через Google</button>';
     return;
   }
-  el.innerHTML = `<span class="account-email" title="${escapeAttr(cloud.user.email || '')} — данные хранятся в облаке">${icon('cloud')} <span class="email-text">${escapeHtml(cloud.user.email || '')}</span></span>` +
-    '<span id="sync-status" class="sync-status"></span>' +
+  el.innerHTML = `<span id="account-email" class="account-email" title="${escapeAttr(cloud.user.email || '')} — сохранено в облаке">${icon('cloud')} <span class="email-text">${escapeHtml(cloud.user.email || '')}</span></span>` +
     '<button class="pill-btn" data-act="sign-out">Выйти</button>';
 }
 
@@ -3709,8 +3708,14 @@ function showCloudBanner(html) {
 
 // Состояние отправки в облако: «сохраняю…», «сохранено» или ошибка с кнопкой «Повторить»
 function onCloudStatus(status) {
-  const el = $('sync-status');
-  if (el) el.textContent = { pending: '…', saving: 'сохраняю…', saved: '✓ сохранено', error: 'не сохранено' }[status];
+  // без надписей: сохранение видно по значку облака (мигает — сохраняю, красный — не сохранилось), текст — в подсказке
+  const el = $('account-email');
+  if (el) {
+    el.classList.toggle('saving', status === 'pending' || status === 'saving');
+    el.classList.toggle('sync-error', status === 'error');
+    const email = cloud.user?.email || '';
+    el.title = `${email} — ${{ pending: 'сохраняю…', saving: 'сохраняю…', saved: 'сохранено в облаке', error: 'не сохранено, повторю попытку' }[status]}`;
+  }
   clearTimeout(cloud.retryTimer);
   if (status === 'error') {
     showCloudBanner(`${icon('alert')}<span>Нет связи с облаком — изменения пока только на этом устройстве. ' +
