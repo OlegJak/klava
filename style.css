@@ -1186,6 +1186,7 @@ body.guest .account .pill-btn:hover { background: var(--accent-hover); border-co
 
 /* Цифры */
 .land-stats {
+  position: relative; z-index: 1;
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
   overflow: hidden; border-radius: 22px; background: var(--line);
   box-shadow: var(--shadow);
