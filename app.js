@@ -2320,10 +2320,10 @@ function editCardRow(c, i, moveTo = []) {
   const input = (field, label, value = '') =>
     `<label class="field big"><input data-field="${field}" value="${escapeAttr(value)}" autocomplete="off"><span>${label}</span></label>`;
   const hasMore = c && (c.example || c.exampleTranslation || c.explanation);
-  return `<li class="edit-card${c ? '' : ' new'}"${c ? ` data-card="${escapeAttr(c.id)}"` : ''}>` +
+  // без карточки — черновик: выглядит как обычная карточка и сохраняется, когда введён термин
+  return `<li class="edit-card${c ? '' : ' draft'}"${c ? ` data-card="${escapeAttr(c.id)}"` : ''}>` +
     '<div class="edit-card-head">' +
-    `<span class="edit-num">${c ? i + 1 : icon('plus')}</span>` +
-    (c ? '' : '<small class="edit-hint">Введите термин — карточка сохранится сама. Если языки сторон разные, перевод подставится автоматически</small>') +
+    `<span class="edit-num">${i + 1}</span>` +
     '<span class="edit-tools">' +
     `<button class="icon-btn drag-handle" title="Перетащить">${icon('grip')}</button>` +
     `<button class="icon-btn" data-act="card-delete" title="Удалить карточку">${icon('trash')}</button></span></div>` +
@@ -2339,10 +2339,26 @@ function editCardRow(c, i, moveTo = []) {
 }
 
 const moveTargets = (moduleId) => ownModules().filter((m) => m.id !== moduleId);
+// Карточки модуля; у пустого модуля — одна пустая карточка, чтобы сразу начать. Новые добавляет сам человек
 const editCardList = (m) => {
   const moveTo = moveTargets(m.id);
-  return `${m.cards.map((c, i) => editCardRow(c, i, moveTo)).join('')}${editCardRow(null)}`;
+  return m.cards.length ? m.cards.map((c, i) => editCardRow(c, i, moveTo)).join('') : editCardRow(null, 0);
 };
+const renumberCards = () => $('edit-cards').querySelectorAll('.edit-card').forEach((r, i) => {
+  r.querySelector('.edit-num').textContent = i + 1;
+});
+
+// «+ Добавить карточку» и Enter в определении: пустая карточка в конце, курсор — в термин.
+// Если последняя карточка ещё пустая, просто переходим в неё
+function addCardRow() {
+  const list = $('edit-cards');
+  const last = list.lastElementChild;
+  const lastEmpty = last?.classList.contains('draft') && !last.querySelector('[data-field="term"]').value.trim();
+  if (!lastEmpty) list.insertAdjacentHTML('beforeend', editCardRow(null, list.children.length));
+  const row = list.lastElementChild;
+  row.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' });
+  row.querySelector('[data-field="term"]').focus({ preventScroll: true });
+}
 
 function renderEditModule(id) {
   const m = core.module(id);
@@ -2352,7 +2368,10 @@ function renderEditModule(id) {
     `<label class="field"><span>Название</span><input id="edit-title" value="${escapeAttr(m.title)}"></label>` +
     `<label class="field"><span>Папка</span>${folderSelect('edit-folder', m.folderId)}</label>` +
     langFields('edit', m.langs || DEFAULT_LANGS) +
-    `<h2 class="edit-cards-title">Карточки</h2><ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol></div>`;
+    '<div class="edit-cards-head"><h2 class="edit-cards-title">Карточки</h2>' +
+    '<small>Карточка сохраняется, когда введён термин. Если языки сторон разные, перевод подставится сам</small></div>' +
+    `<ol id="edit-cards" class="edit-cards">${editCardList(m)}</ol>` +
+    `<button type="button" class="add-card" data-act="card-add">${icon('plus')}Добавить карточку<kbd>Enter</kbd></button></div>`;
 }
 
 // Хлебные крошки под шапкой: Главная › папка › модуль. На самой главной их нет
@@ -2494,14 +2513,13 @@ function fillTranslation(moduleId, cardId, term) {
   });
 }
 
-// Пустая строка внизу превращается в карточку на месте, без перерисовки:
-// фокус остаётся там, куда его перевёл пользователь
-function promoteNewRow(row, card, index) {
-  row.classList.remove('new');
+// Черновик становится карточкой на месте, без перерисовки: фокус остаётся там, куда его перевёл человек.
+// Карточка встаёт в модуле туда же, где стоит в списке
+function promoteDraft(moduleId, row, card) {
+  row.classList.remove('draft');
   row.dataset.card = card.id;
-  row.querySelector('.edit-num').textContent = index + 1;
-  row.querySelector('.edit-hint')?.remove();
-  row.insertAdjacentHTML('afterend', editCardRow(null));
+  const index = [...$('edit-cards').querySelectorAll('.edit-card[data-card]')].indexOf(row);
+  if (index !== core.module(moduleId).cards.length - 1) core.moveCard(moduleId, card.id, index);
 }
 
 function onEditorChange(e) {
@@ -2534,12 +2552,14 @@ function onEditorChange(e) {
   if (!field || !row) return;
   const defInput = row.querySelector('[data-field="definition"]');
 
-  if (row.classList.contains('new')) {
-    // новая карточка появляется, когда введён термин
+  if (row.classList.contains('draft')) {
+    // карточка сохраняется, когда введён термин; остальные поля черновика — вместе с ней
     const term = row.querySelector('[data-field="term"]').value;
     if (!term.trim()) return;
-    const card = core.addCard(id, { term, definition: defInput.value });
-    promoteNewRow(row, card, core.module(id).cards.length - 1);
+    const fields = { term };
+    for (const input of row.querySelectorAll('[data-field]')) if (input.value.trim()) fields[input.dataset.field] = input.value;
+    const card = core.addCard(id, fields);
+    promoteDraft(id, row, card);
     if (!card.definition) fillTranslation(id, card.id, card.term);
     return;
   }
@@ -2554,9 +2574,14 @@ function onEditorChange(e) {
   if (field === 'term' && !defInput.value.trim()) fillTranslation(id, cardId, el.value.trim());
 }
 
-function onEditorCardAction(act, cardId) {
+function onEditorCardAction(act, cardId, row) {
   const id = editorModule();
-  if (!cardId) return; // пустая строка для новой карточки
+  if (!cardId) {
+    // черновик: удалить — просто убрать из списка; картинку — после термина
+    if (act === 'card-delete') { row.remove(); renumberCards(); }
+    else if (act === 'card-image') toast('Сначала введите термин', 'image');
+    return;
+  }
   if (act === 'card-delete') {
     core.deleteCard(id, cardId);
     $('edit-cards').innerHTML = editCardList(core.module(id));
@@ -2625,17 +2650,35 @@ function pickImage(moduleId, cardId) {
 // Картинку можно перетащить из папки на квадрат или вставить Ctrl+V, пока курсор в карточке
 function initImageInput() {
   const body = $('page-body');
+  // пока над окном тащат файл, поля «Изображение» становятся крупнее — в них проще попасть
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const stopFileDrag = () => { depth = 0; document.body.classList.remove('dragging-files'); };
+  document.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    depth++;
+    document.body.classList.add('dragging-files');
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (hasFiles(e) && --depth <= 0) stopFileDrag();
+  });
+  // файл бросили мимо поля — не открывать его вместо сайта
+  document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  document.addEventListener('drop', (e) => { if (hasFiles(e)) e.preventDefault(); stopFileDrag(); });
   body.addEventListener('dragover', (e) => {
-    const box = e.target.closest('.edit-card[data-card] .image-box');
+    const box = e.target.closest('.edit-card .image-box');
     if (!box) return;
     e.preventDefault();
     box.classList.add('drop');
   });
   body.addEventListener('dragleave', (e) => e.target.closest('.image-box')?.classList.remove('drop'));
   body.addEventListener('drop', (e) => {
-    const row = e.target.closest('.edit-card[data-card]');
-    if (!row || !e.target.closest('.image-box')) return;
+    const box = e.target.closest('.edit-card .image-box');
+    if (!box) return;
     e.preventDefault();
+    box.classList.remove('drop');
+    const row = box.closest('.edit-card');
+    if (!row.dataset.card) { toast('Сначала введите термин', 'image'); return; }
     setCardImage(editorModule(), row.dataset.card, e.dataTransfer.files[0]);
   });
   document.addEventListener('paste', (e) => {
@@ -2649,6 +2692,26 @@ function initImageInput() {
 
 // ---------- Перетаскивание карточек в редакторе ----------
 // Тянем за ручку: карточка едет за указателем (мышь или палец), остальные расступаются; отпустили — порядок сохранён
+// Тянем за ручку: карточка плавно едет за указателем (мышь или палец), остальные мягко расступаются;
+// отпустили — карточка встаёт на место, порядок сохранён
+const SLIDE = 'transform .22s cubic-bezier(.2, .8, .2, 1)';
+
+// Перестановка с плавным сдвигом (FLIP): запоминаем, где карточки были, меняем порядок,
+// и каждая едет со старого места на новое
+function slideRows(rows, change) {
+  const was = new Map(rows.map((r) => [r, r.getBoundingClientRect().top]));
+  change();
+  for (const r of rows) {
+    const dy = was.get(r) - r.getBoundingClientRect().top;
+    if (!dy) continue;
+    r.style.transition = 'none';
+    r.style.transform = `translateY(${dy}px)`;
+    r.getBoundingClientRect(); // применить сдвиг до начала анимации
+    r.style.transition = reducedMotion() ? 'none' : SLIDE;
+    r.style.transform = '';
+  }
+}
+
 function initCardDrag() {
   $('page-body').addEventListener('pointerdown', (e) => {
     const handle = e.target.closest('.edit-card[data-card] .drag-handle');
@@ -2657,29 +2720,52 @@ function initCardDrag() {
     const row = handle.closest('.edit-card');
     const list = row.parentElement;
     const moduleId = editorModule();
-    const startIndex = [...list.querySelectorAll('.edit-card[data-card]')].indexOf(row);
+    const saved = () => [...list.querySelectorAll('.edit-card[data-card]')];
+    const startIndex = saved().indexOf(row);
+    const grabY = e.clientY + scrollY;
+    const startTop = row.offsetTop;
+    let lastY = e.clientY;
+    let scrollTimer = 0;
     row.classList.add('dragging');
+    row.style.transition = 'none';
     try { handle.setPointerCapture(e.pointerId); } catch {}
-    const move = (ev) => {
-      const others = [...list.querySelectorAll('.edit-card[data-card]')].filter((r) => r !== row);
-      const before = others.find((r) => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
-      list.insertBefore(row, before || list.querySelector('.edit-card.new'));
-      if (ev.clientY < 70) scrollBy(0, -14);
-      else if (ev.clientY > innerHeight - 70) scrollBy(0, 14);
+
+    // карточка под указателем; место в списке меняем, когда её середина прошла середину соседней
+    const follow = () => {
+      const top = startTop + (lastY + scrollY - grabY);
+      const mid = top + row.offsetHeight / 2;
+      const others = saved().filter((r) => r !== row);
+      const before = others.find((r) => mid < r.offsetTop + r.offsetHeight / 2) || null;
+      const target = before || list.querySelector('.edit-card.draft');
+      if (row.nextElementSibling !== target && !(target === null && !row.nextElementSibling)) {
+        slideRows([...list.children].filter((r) => r !== row), () => list.insertBefore(row, target));
+      }
+      row.style.transform = `translateY(${top - row.offsetTop}px) scale(1.02)`;
     };
+    // у края экрана — прокручиваем, пока держат
+    const autoScroll = () => {
+      const step = lastY < 80 ? -12 : lastY > innerHeight - 80 ? 12 : 0;
+      if (step) { scrollBy(0, step); follow(); }
+      scrollTimer = requestAnimationFrame(autoScroll);
+    };
+    const move = (ev) => { lastY = ev.clientY; follow(); };
     const up = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
       document.removeEventListener('pointercancel', up);
-      row.classList.remove('dragging');
-      const rows = [...list.querySelectorAll('.edit-card[data-card]')];
-      const index = rows.indexOf(row);
+      cancelAnimationFrame(scrollTimer);
+      row.style.transition = reducedMotion() ? 'none' : SLIDE;
+      row.style.transform = '';
+      const done = () => { row.classList.remove('dragging'); row.style.transition = ''; };
+      if (reducedMotion()) done(); else setTimeout(done, 230);
+      const index = saved().indexOf(row);
       if (index !== startIndex) core.moveCard(moduleId, row.dataset.card, index);
-      rows.forEach((r, i) => { r.querySelector('.edit-num').textContent = i + 1; });
+      renumberCards();
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', up);
     document.addEventListener('pointercancel', up);
+    scrollTimer = requestAnimationFrame(autoScroll);
   });
 }
 
@@ -2726,8 +2812,11 @@ function onPageAction(e) {
     toast('Модуль снова в папке', 'eye');
   } else if (act === 'import-go') {
     doImport();
+  } else if (act === 'card-add') {
+    addCardRow();
   } else if (act.startsWith('card-')) {
-    onEditorCardAction(act, btn.closest('.edit-card').dataset.card);
+    const row = btn.closest('.edit-card');
+    onEditorCardAction(act, row.dataset.card, row);
   }
 }
 
@@ -3053,6 +3142,17 @@ function initPages() {
   });
   initCardDrag();
   initImageInput();
+  $('page-body').addEventListener('keydown', (e) => {
+    const field = e.key === 'Enter' && !e.isComposing && e.target.closest?.('.edit-main [data-field]');
+    if (!field) return;
+    e.preventDefault();
+    const row = field.closest('.edit-card');
+    if (field.dataset.field === 'term') { row.querySelector('[data-field="definition"]').focus(); return; }
+    field.blur(); // сохранить поле (событие change)
+    const next = row.nextElementSibling;
+    if (next) next.querySelector('[data-field="term"]').focus();
+    else addCardRow();
+  });
   $('page-body').addEventListener('click', onPageAction);
   document.addEventListener('keydown', onFlashKey);
   document.addEventListener('keydown', onLearnKey);
