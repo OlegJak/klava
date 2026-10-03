@@ -12,17 +12,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="style.css?v=66">
+  <link rel="stylesheet" href="style.css?v=67">
 </head>
 <body>
   <!-- Экраны-страницы: главная, папка, модуль. Содержимое рисует app.js по адресу после # -->
   <div id="page" class="page-screen" hidden>
     <header class="top">
       <a href="#/" class="brand"><img class="brand-mark" src="img/klava-icon.svg" alt="">Klava</a>
-      <nav id="crumbs" class="crumbs"></nav>
       <span id="account" class="account"></span>
       <button class="pill-btn theme-btn">Тёмная тема</button>
     </header>
+    <!-- Хлебные крошки: папка › модуль › режим — под шапкой -->
+    <nav id="crumbs" class="crumbs"></nav>
     <main id="page-body" class="page"></main>
   </div>
 
