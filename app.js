@@ -105,6 +105,14 @@ function deckLangs(deckId) {
   return all.length && all.every((l) => l.term === all[0].term && l.definition === all[0].definition) ? all[0] : null;
 }
 const isTermDeck = (l) => !l || l.term === l.definition;
+// «Знаю / не знаю» — на языке изучаемых слов (язык терминов модуля)
+const ANSWER_WORDS = {
+  en: { know: 'Know', dont: 'Don’t know' },
+  ru: { know: 'Знаю', dont: 'Не знаю' },
+  et: { know: 'Tean', dont: 'Ei tea' },
+};
+const answerWords = (lang) => ANSWER_WORDS[lang] || ANSWER_WORDS.en;
+const lowerFirst = (t) => t[0].toLowerCase() + t.slice(1);
 // Подписи направлений: «англ → рус» или, у терминов и смешанных колод, «Термин → определение»
 function dirLabels(deckId) {
   const l = deckLangs(deckId);
@@ -1726,6 +1734,7 @@ function flashSides(card) {
 function renderFlash() {
   const s = flashcards.session;
   const dir = flashDir();
+  const doneWords = answerWords(deckLangs(flashcards.moduleId)?.term);
   const seg = (value, label) => `<button class="seg-btn${dir === value ? ' on' : ''}" data-act="flash-dir" data-dir="${value}">${label}</button>`;
   const bar = '<div class="flash-bar">' +
     `<div class="seg">${seg('en-ru', dirLabels(flashcards.moduleId)['en-ru'])}${seg('ru-en', dirLabels(flashcards.moduleId)['ru-en'])}</div>` +
@@ -1739,7 +1748,7 @@ function renderFlash() {
     const n = s.unknown.length;
     $('page-body').innerHTML = `<div class="flash">${bar}<div class="flash-done">` +
       '<h2>Готово!</h2>' +
-      `<p>Знаю: <b class="dict-ok">${s.known.length}</b> · Не знаю: <b class="dict-bad">${n}</b></p>` +
+      `<p>${doneWords.know}: <b class="dict-ok">${s.known.length}</b> · ${doneWords.dont}: <b class="dict-bad">${n}</b></p>` +
       '<div class="page-actions">' +
       (n ? `<button class="primary-btn" data-act="flash-retry">Повторить незнакомые (${n})</button>` : '') +
       '<button class="pill-btn" data-act="flash-restart">Начать заново</button>' +
@@ -1748,26 +1757,27 @@ function renderFlash() {
   }
 
   const { front, back, extra } = flashSides(s.current);
+  const words = answerWords(cardLangs(s.current.id, flashcards.moduleId).term);
   const long = (html) => (html.length > 40 ? ' long' : '');
   $('page-body').innerHTML = `<div class="flash">${bar}` +
     `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
     '<div class="flash-inner">' +
-    '<span class="swipe-stamp yes">Know</span><span class="swipe-stamp no">Don’t know</span>' +
+    `<span class="swipe-stamp yes">${words.know}</span><span class="swipe-stamp no">${words.dont}</span>` +
     `<div class="face front">${cardImage(s.current)}<span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
       ? 'Нажмите, чтобы перевернуть'
       : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
     `<div class="face back">${cardImage(s.current)}<span class="flash-text${long(back)}">${back}</span>${extra}</div>` +
     '</div></div>' +
     '<div class="flash-actions">' +
-    `<button class="flash-btn no" data-act="flash-no">${icon('x')} Don’t know</button>` +
+    `<button class="flash-btn no" data-act="flash-no">${icon('x')} ${words.dont}</button>` +
     `<button class="flash-btn speak" data-act="flash-speak" title="Произнести">${icon('volume')}</button>` +
-    `<button class="flash-btn yes" data-act="flash-yes">${icon('check')} Know</button>` +
+    `<button class="flash-btn yes" data-act="flash-yes">${icon('check')} ${words.know}</button>` +
     '</div>' +
     // клавиши — только там, где есть клавиатура
     (canType() ? '<div class="kbd-legend">' +
       `<span><kbd class="key-cap wide">Пробел</kbd>перевернуть</span>` +
-      `<span class="no"><kbd class="key-cap">${icon('arrow', 'flip')}</kbd>не знаю</span>` +
-      `<span class="yes"><kbd class="key-cap">${icon('arrow')}</kbd>знаю</span></div>` : '') +
+      `<span class="no"><kbd class="key-cap">${icon('arrow', 'flip')}</kbd>${lowerFirst(words.dont)}</span>` +
+      `<span class="yes"><kbd class="key-cap">${icon('arrow')}</kbd>${lowerFirst(words.know)}</span></div>` : '') +
     '</div>';
 }
 
@@ -1938,7 +1948,7 @@ function renderLearn() {
     body = '<form id="learn-form" class="learn-form">' +
       `<input id="learn-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${target[0].toUpperCase() + target.slice(1)}">` +
       '<button class="primary-btn">Ответить</button>' +
-      '<button type="button" class="pill-btn" data-act="learn-skip">Не знаю</button></form>';
+      `<button type="button" class="pill-btn" data-act="learn-skip">${answerWords(cardLangs(q.card.id, learn.moduleId).term).dont}</button></form>`;
   } else body = '';
 
   // После ответа: «Верно / Неверно» не пишем — подсказывают цвета. Только при вводе с ошибкой
