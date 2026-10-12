@@ -85,11 +85,12 @@ let core = makeCore();
 const store = core.settings;
 
 // ---------- Языки модулей ----------
-// Пока три языка. Одинаковые языки сторон — модуль терминов с объяснениями: «Коленвал — вал двигателя, который…»
+// Пока четыре языка. Одинаковые языки сторон — модуль терминов с объяснениями: «Коленвал — вал двигателя, который…»
 const LANGS = {
   en: { name: 'Английский', short: 'англ', adv: 'по-английски', speech: 'en-US' },
   ru: { name: 'Русский', short: 'рус', adv: 'по-русски', speech: 'ru-RU' },
   et: { name: 'Эстонский', short: 'эст', adv: 'по-эстонски', speech: 'et-EE' },
+  it: { name: 'Итальянский', short: 'ит', adv: 'по-итальянски', speech: 'it-IT' },
 };
 const DEFAULT_LANGS = { term: 'en', definition: 'ru' };
 const langsOf = (moduleId) => core.module(moduleId)?.langs || DEFAULT_LANGS;
@@ -110,6 +111,7 @@ const ANSWER_WORDS = {
   en: { know: 'Know', dont: 'Don’t know' },
   ru: { know: 'Знаю', dont: 'Не знаю' },
   et: { know: 'Tean', dont: 'Ei tea' },
+  it: { know: 'Lo so', dont: 'Non lo so' },
 };
 const answerWords = (lang) => ANSWER_WORDS[lang] || ANSWER_WORDS.en;
 const lowerFirst = (t) => t[0].toLowerCase() + t.slice(1);
@@ -1322,7 +1324,7 @@ function renderLanding() {
     '<section class="land-stats reveal">' +
       stat(5, '', 'режимов обучения', 'карточки, заучивание, тест, пары, набор') +
       stat(5, '', 'ступеней повторения', 'через 1, 3, 7, 14 и 30 дней') +
-      stat(3, '', 'языка', 'английский, русский и эстонский — с озвучкой') +
+      stat(4, '', 'языка', 'английский, русский, эстонский и итальянский — с озвучкой') +
       stat(100, '%', 'ваши данные', 'модули и прогресс видите только вы') +
       stat(0, '&nbsp;€', 'стоимость', 'без подписки и платных уровней', 100) +
     '</section>' +
@@ -1376,9 +1378,9 @@ function renderLanding() {
       '<ul class="land-perks">' +
         perk('book', 'Любые термины', 'Коленвал, фотосинтез, статья закона — модуль с определениями на одном языке') +
         perk('download', 'Импорт из Quizlet', 'Перенесите свои модули за минуту — вставьте экспорт или таблицу') +
-        perk('translate', 'Автоперевод', 'Введите слово — перевод между английским, русским и эстонским подставится сам') +
+        perk('translate', 'Автоперевод', 'Введите слово — Klava предложит варианты перевода: английский, русский, эстонский, итальянский') +
         perk('image', 'Картинки', 'Добавьте изображение к слову — запоминается в разы легче') +
-        perk('volume', 'Озвучка', 'Слова звучат на английском, русском и эстонском — голосами вашего браузера') +
+        perk('volume', 'Озвучка', 'Слова звучат на английском, русском, эстонском и итальянском — живым онлайн-голосом, и на iPhone тоже') +
         perk('star', 'Избранное', 'Отмечайте трудные слова и учите только их') +
         perk('folder', 'Папки и модули', 'Раскладывайте слова по темам, урокам и экзаменам') +
         perk('chart', 'Статистика и серии', 'Сколько выучено, сколько повторить и сколько дней подряд вы учитесь') +
@@ -1419,8 +1421,8 @@ function renderLanding() {
       faq('Это правда бесплатно?', 'Да. Все режимы, модули, папки и повторение доступны бесплатно, без пробного периода и рекламы.') +
       faq('Зачем входить через Google?', 'Чтобы ваши модули и прогресс сохранялись в облаке и были доступны на любом устройстве. ' +
         'Пароль придумывать не нужно, Klava получает только вашу почту.') +
-      faq('Что можно учить?', 'Иностранные слова — с переводом, озвучкой и автопереводом: пока для английского, русского ' +
-        'и эстонского. И любые термины с определениями: устройство автомобиля, медицину, право, историю — всё, что нужно запомнить.') +
+      faq('Что можно учить?', 'Иностранные слова — с переводом, озвучкой и автопереводом: пока для английского, русского, ' +
+        'эстонского и итальянского. И любые термины с определениями: устройство автомобиля, медицину, право, историю — всё, что нужно запомнить.') +
       faq('Кто видит мои модули?', 'Только вы. Данные хранятся в защищённой базе, и доступ к ним есть только у вашего аккаунта.') +
       faq('У меня уже есть модули в Quizlet', 'Экспортируйте модуль в Quizlet и вставьте текст в Klava — слова и переводы перенесутся за минуту.') +
       faq('Работает ли на телефоне?', 'Да, сайт подстраивается под экран: карточки можно смахивать пальцем, прогресс общий с компьютером.') +
@@ -3606,7 +3608,7 @@ let voices = [];
 // Grandpa…) — раньше при равных очках первым по алфавиту оказывался Albert или Bad News. Теперь они в самом конце,
 // а впереди — улучшенные (Premium, Enhanced, Natural) и известные хорошие голоса
 const JOKE_VOICES = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Fred|Good News|Hysterical|Jester|Junior|Kathy|Organ|Pipe Organ|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/i;
-const GOOD_VOICES = /^(Samantha|Ava|Allison|Susan|Zoe|Evan|Nathan|Tom|Joelle|Noelle|Daniel|Serena|Kate|Oliver|Arthur|Martha|Karen|Lee|Moira|Tessa|Rishi|Milena|Yuri|Katya|Anu|Kert|Aria|Jenny|Guy|Libby|Sonia|Ryan|Svetlana|Dmitry)\b/i;
+const GOOD_VOICES = /^(Samantha|Ava|Allison|Susan|Zoe|Evan|Nathan|Tom|Joelle|Noelle|Daniel|Serena|Kate|Oliver|Arthur|Martha|Karen|Lee|Moira|Tessa|Rishi|Milena|Yuri|Katya|Anu|Kert|Aria|Jenny|Guy|Libby|Sonia|Ryan|Svetlana|Dmitry|Alice|Federica|Luca|Paola|Emma|Elsa|Isabella|Diego|Giuseppe)\b/i;
 function voiceScore(v) {
   const id = `${v.name} ${v.voiceURI}`;
   let s = 0;
@@ -3628,9 +3630,9 @@ const voicesFor = (lang) => speechSynthesis.getVoices()
   .sort((a, b) => voiceScore(b) - voiceScore(a) || a.name.localeCompare(b.name));
 // Выбранный голос языка хранится в настройках (английский — под прежним ключом voice)
 const voiceKey = (lang) => (lang === 'en' ? 'voice' : `voice-${lang}`);
-const voiceName = (v) => v.name.replace(/^(Microsoft|Google|Apple)\s+/, '').replace(/\s*[-–]\s*(English|Russian|Estonian).*$/i, '');
+const voiceName = (v) => v.name.replace(/^(Microsoft|Google|Apple)\s+/, '').replace(/\s*[-–]\s*(English|Russian|Estonian|Italian).*$/i, '');
 
-// Онлайн-голос Google: живее встроенных голосов iPhone, и есть эстонский. Выбран по умолчанию.
+// Онлайн-голос Google: живее встроенных голосов iPhone, и есть эстонский и итальянский. Выбран по умолчанию.
 // Сервер отказывает запросам с адресом чужой страницы — поэтому в index.html стоит meta referrer no-referrer.
 // Нет связи или сервер не ответил — читаем голосом браузера
 const ONLINE_VOICE = 'online';
@@ -3661,7 +3663,7 @@ function loadVoices() {
 }
 
 // Окно «Озвучка»: голос для каждого языка, кнопка прослушать и скорость
-const VOICE_SAMPLES = { en: 'Hello! This is how I sound.', ru: 'Привет! Вот так я звучу.', et: 'Tere! Nii ma kõlan.' };
+const VOICE_SAMPLES = { en: 'Hello! This is how I sound.', ru: 'Привет! Вот так я звучу.', et: 'Tere! Nii ma kõlan.', it: 'Ciao! Ecco come suono.' };
 function openVoiceDialog() {
   const d = document.createElement('dialog');
   d.className = 'dialog';
@@ -3676,7 +3678,7 @@ function openVoiceDialog() {
   d.innerHTML = '<div class="dialog-body"><h2>Озвучка</h2>' +
     Object.keys(LANGS).map(row).join('') +
     `<label class="voice-rate"><span>Скорость</span><input type="range" min="0.6" max="1.2" step="0.05" value="${store.get('rate', 0.9)}"></label>` +
-    '<p class="voice-tip">«Google — онлайн» звучит живее всего и умеет эстонский, но нужен интернет. ' +
+    '<p class="voice-tip">«Google — онлайн» звучит живее всего и умеет все языки Klava, но нужен интернет. ' +
     'Остальные голоса — из телефона или компьютера: на iPhone улучшенные скачиваются в Настройки → Универсальный доступ → ' +
     'Устный контент → Голоса.</p>' +
     '<div class="dialog-actions"><button type="button" class="primary-btn" data-dialog="close">Готово</button></div></div>';
