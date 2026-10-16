@@ -2515,46 +2515,23 @@ async function pasteFromClipboard() {
   }
 }
 
-// В приложении Quizlet «Экспорта» нет — только на сайте, и на телефоне его показывает версия для ПК.
-// Поэтому с телефона: ссылка из приложения → сайт в браузере → версия для ПК → «Экспорт».
-// Какие шаги показать сначала — по устройству; переключатель «С компьютера / С телефона» рядом
-const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const isPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
-
-function quizletCard() {
-  const path = (...items) => '<span class="q-path">' + items.map((x) => `<span class="q-btn">${x}</span>`).join(`<span class="q-sep">›</span>`) + '</span>';
-  const step = (n, html) => `<li><span class="q-num">${n}</span><div>${html}</div></li>`;
-  const paste = (n) => step(n, 'Вернитесь сюда и нажмите' +
-    `<button type="button" class="cta-paste" data-act="imp-paste">${icon('copy')}Вставить из Quizlet</button>`);
-  const desktop = isIOS()
-    ? `В Safari нажмите${path('аА', 'Запросить настольный веб-сайт')}`
-    : `В Chrome нажмите${path('⋮', 'Версия для ПК')}`;
-  const dev = isPhone() ? 'phone' : 'pc';
-  const seg = (value, label) => `<button type="button" class="seg-btn${dev === value ? ' on' : ''}" data-act="imp-dev" data-dev="${value}">${label}</button>`;
-  return `<section class="form-card quizlet-card" data-dev="${dev}">` +
-    `<div class="q-head"><span class="q-icon">${icon('download')}</span><div><b>Из Quizlet</b>` +
-    '<small>Слова и переводы перенесутся целиком</small></div>' +
-    `<div class="seg q-dev">${seg('pc', 'С компьютера')}${seg('phone', 'С телефона')}</div></div>` +
-    '<ol class="q-steps q-pc">' +
-    step(1, `В Quizlet откройте модуль и нажмите${path('⋯', 'Экспорт', 'Скопировать текст')}`) + paste(2) + '</ol>' +
-    '<ol class="q-steps q-phone">' +
-    step(1, `В приложении Quizlet откройте модуль и нажмите${path('⋯', 'Поделиться', 'Скопировать ссылку')}`) +
-    step(2, `Вставьте ссылку в адресную строку ${isIOS() ? 'Safari' : 'браузера'} — откроется сайт Quizlet` +
-      '<small class="q-note">В приложении «Экспорта» нет — он есть только на сайте</small>') +
-    step(3, desktop) +
-    step(4, `Под названием модуля нажмите${path('⋯', 'Экспорт', 'Скопировать текст')}`) + paste(5) + '</ol>' +
-    '</section>';
-}
-
 function renderImport({ folderId, moduleId }) {
   const radio = (name, value, label, checked) =>
     `<label class="radio"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}><span>${label}</span></label>`;
   const own = ownModules();
   const toExisting = Boolean(moduleId);
+  const path = (...items) => '<span class="q-path">' + items.map((x) => `<span class="q-btn">${x}</span>`).join(`<span class="q-sep">›</span>`) + '</span>';
   // Варианты «Куда» — блоками: поля варианта видны, только когда он выбран (см. .imp-option в style.css)
   return '<div id="import-form" class="form">' +
     '<h1>Импорт карточек</h1>' +
-    quizletCard() +
+    '<section class="form-card quizlet-card">' +
+    `<div class="q-head"><span class="q-icon">${icon('download')}</span><div><b>Из Quizlet — в два шага</b>` +
+    '<small>Слова и переводы перенесутся целиком</small></div></div>' +
+    '<ol class="q-steps">' +
+    `<li><span class="q-num">1</span><div>В Quizlet откройте модуль и нажмите${path('⋯', 'Экспорт', 'Скопировать текст')}</div></li>` +
+    '<li><span class="q-num">2</span><div>Вернитесь сюда и нажмите' +
+    `<button type="button" class="cta-paste" data-act="imp-paste">${icon('copy')}Вставить из Quizlet</button></div></li>` +
+    '</ol></section>' +
     '<section class="form-card">' +
     '<label class="field"><span>Список</span><textarea id="imp-text" rows="6" ' +
     'placeholder="Сюда вставятся слова. Можно вставить и любой свой список: каждая карточка с новой строки, термин и перевод через Tab или тире"></textarea></label>' +
@@ -3306,9 +3283,6 @@ function onPageAction(e) {
     openVoiceDialog();
   } else if (act === 'imp-paste') {
     pasteFromClipboard();
-  } else if (act === 'imp-dev') {
-    btn.closest('.quizlet-card').dataset.dev = btn.dataset.dev;
-    btn.parentElement.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('on', b === btn));
   } else if (act.startsWith('flash-')) {
     onFlashAction(act, btn);
   } else if (act.startsWith('learn-')) {
