@@ -1750,6 +1750,64 @@ const starButton = (act, on) => `<button type="button" class="card-star${on ? ' 
   `data-tip="${on ? 'Убрать из избранных' : 'В избранные — подучить'}" aria-label="${on ? 'Убрать из избранных' : 'В избранные'}">` +
   `${icon(on ? 'star-fill' : 'star')}</button>`;
 
+// ---------- Исправить карточку прямо во время занятия ----------
+// В каком модуле карточка: у колоды-модуля — он сам, в «Сегодня» — по очереди повторения
+function cardModuleId(cardId, deckId) {
+  if (deckId !== 'today') return deckId;
+  return core.dueCards().find((x) => x.card.id === cardId)?.moduleId;
+}
+// ✎ показываем только у своих модулей: встроенные уроки не меняются
+const editButton = (act, cardId, deckId) => (isOwnModule(cardModuleId(cardId, deckId))
+  ? `<button type="button" class="card-star card-edit" data-act="${act}" data-tip="Исправить" aria-label="Исправить карточку">${icon('pen')}</button>`
+  : '');
+
+// Окно «Исправить карточку»: термин и определение; результат — { term, definition } или null
+function editCardDialog(card) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.className = 'dialog';
+    const field = (name, label, value) => `<label class="field"><span>${label}</span>` +
+      `<textarea class="dialog-input" data-field="${name}" rows="1">${escapeHtml(value || '')}</textarea></label>`;
+    d.innerHTML = '<form class="dialog-body"><h2>Исправить карточку</h2>' +
+      field('term', 'Термин', card.term) + field('definition', 'Определение', card.definition) +
+      '<div class="dialog-actions"><button type="button" class="pill-btn" data-dialog="cancel">Отмена</button>' +
+      '<button class="primary-btn">Сохранить</button></div></form>';
+    document.body.append(d);
+    const finish = (result) => { d.close(); d.remove(); resolve(result); };
+    const read = (name) => d.querySelector(`[data-field="${name}"]`).value.replace(/\s*\n\s*/g, ' ').trim();
+    const save = () => {
+      const term = read('term');
+      if (!term) { d.querySelector('[data-field="term"]').focus(); return; }
+      finish({ term, definition: read('definition') });
+    };
+    d.querySelector('[data-dialog="cancel"]').addEventListener('click', () => finish(null));
+    d.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
+    d.addEventListener('click', (e) => { if (e.target === d) finish(null); });
+    d.querySelector('form').addEventListener('submit', (e) => { e.preventDefault(); save(); });
+    // Enter — сохранить (в окне нет многострочного текста), поля растут вместе с текстом
+    d.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); save(); } });
+    d.addEventListener('input', (e) => { if (e.target.matches('textarea')) autosize(e.target); });
+    d.showModal();
+    d.querySelectorAll('textarea').forEach(autosize);
+    const first = d.querySelector('[data-field="term"]');
+    first.focus();
+    first.setSelectionRange(first.value.length, first.value.length);
+  });
+}
+
+// Исправить карточку: сохраняем в модуль, меняем её же в занятии и перерисовываем
+function fixCard(card, deckId, onSaved) {
+  const moduleId = cardModuleId(card.id, deckId);
+  if (!isOwnModule(moduleId)) return;
+  editCardDialog(card).then((fields) => {
+    if (!fields || (fields.term === card.term && fields.definition === (card.definition || ''))) return;
+    core.updateCard(moduleId, card.id, fields);
+    Object.assign(card, fields);
+    onSaved();
+    toast('Карточка исправлена', 'pen');
+  });
+}
+
 // Нажали звезду во время занятия: отметить карточку и перерисовать только кнопку
 function toggleStudyStar(btn, cardId, act) {
   const on = core.toggleStar(cardId);
@@ -1802,7 +1860,7 @@ function renderFlash() {
     `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
     '<div class="flash-inner">' +
     `<span class="swipe-stamp yes">${words.know}</span><span class="swipe-stamp no">${words.dont}</span>` +
-    starButton('flash-star', core.isStarred(s.current.id)) +
+    `<span class="card-tools">${editButton('flash-edit', s.current.id, flashcards.moduleId)}${starButton('flash-star', core.isStarred(s.current.id))}</span>` +
     `<div class="face front">${cardImage(s.current)}<span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
       ? 'Нажмите, чтобы перевернуть'
       : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
@@ -1874,7 +1932,7 @@ function initFlashSwipe() {
   const body = $('page-body');
   body.addEventListener('pointerdown', (e) => {
     const card = e.target.closest('.flash-card');
-    if (!card || flashcards.busy || e.target.closest('.card-star')) return; // звезда — не свайп и не переворот
+    if (!card || flashcards.busy || e.target.closest('.card-tools')) return; // звезда и ✎ — не свайп и не переворот
     Object.assign(swipe, { x: e.clientX, dx: 0, active: true, moved: false });
     try { card.setPointerCapture(e.pointerId); } catch {}
   });
@@ -1906,6 +1964,10 @@ function initFlashSwipe() {
 
 function onFlashAction(act, btn) {
   const s = flashcards.session;
+  if (act === 'flash-edit') {
+    fixCard(s.current, flashcards.moduleId, renderFlash);
+    return;
+  }
   if (act === 'flash-star') {
     toggleStudyStar(btn || document.querySelector('.card-star'), s.current.id, 'flash-star');
     return;
@@ -1980,7 +2042,7 @@ function renderLearn() {
   const langs = deckLangs(learn.moduleId);
   const target = isTermDeck(langs) ? (q.direction === 'en-ru' ? 'определение' : 'термин')
     : q.direction === 'en-ru' ? 'перевод' : LANGS[langs.term]?.adv || 'термин';
-  const speakBtn = starButton('learn-star', core.isStarred(q.card.id)) +
+  const speakBtn = editButton('learn-edit', q.card.id, learn.moduleId) + starButton('learn-star', core.isStarred(q.card.id)) +
     (learnTerm() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '');
   let body;
   if (q.stage === 1) {
@@ -2051,6 +2113,16 @@ function onLearnAction(act, btn) {
   else if (act === 'learn-override') learnContinue(true);
   else if (act === 'learn-speak') speakText(learnTerm(), learnTermLang());
   else if (act === 'learn-star') toggleStudyStar(btn, learn.state.question.card.id, 'learn-star');
+  else if (act === 'learn-edit') {
+    const q = learn.state.question;
+    fixCard(q.card, learn.moduleId, () => {
+      const old = q.answer;
+      q.prompt = q.direction === 'en-ru' ? q.card.term : q.card.definition;
+      q.answer = q.direction === 'en-ru' ? q.card.definition : q.card.term;
+      if (q.choices) q.choices = q.choices.map((c) => (c === old ? q.answer : c));
+      renderLearn();
+    });
+  }
   else if (act === 'learn-restart') startLearn(learn.moduleId);
   else if (act === 'learn-dir') { store.set('learn-dir', btn.dataset.dir); startLearn(learn.moduleId); }
 }

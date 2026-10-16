@@ -1690,7 +1690,9 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
 .card-star:hover { color: #f5b301; background: color-mix(in srgb, #f5b301 14%, transparent); }
 .card-star.on { color: #f5b301; }
 .card-star:active { transform: scale(.88); }
-.flash-card > .card-star { position: absolute; z-index: 3; top: 12px; right: 12px; }
+/* ✎ и ☆ в правом верхнем углу карточки — не переворачиваются вместе с ней */
+.card-tools { position: absolute; z-index: 3; top: 12px; right: 12px; display: flex; gap: 2px; }
+.card-edit:hover { color: var(--accent); background: var(--accent-soft); }
 .learn-head { display: flex; align-items: center; gap: 4px; }
 .learn-head small { margin-right: auto; }
 
@@ -1805,3 +1807,5 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
     font-size: 13px; font-weight: 800; text-transform: uppercase; color: var(--muted);
   }
 }
+/* поля в окне «Исправить карточку» растут по тексту, без полосы прокрутки */
+textarea.dialog-input { display: block; resize: none; overflow: hidden; line-height: 1.35; font-family: inherit; }
