@@ -719,6 +719,37 @@
     return { card, stage, direction, prompt: ask(card), answer, choices };
   }
 
+  // Заучивание для сохранения — только id и числа, чтобы продолжить после перезагрузки
+  const learnSnapshot = (s) => ({
+    direction: s.direction, order: s.cards.map((c) => c.id), progress: s.progress,
+    waiting: s.waiting, active: s.active, masteredIds: s.masteredIds, round: s.round, roundIds: s.roundIds, pos: s.pos,
+  });
+  // Продолжить сохранённое заучивание на нынешних карточках: удалённые и ставшие пустыми выпадают,
+  // новые ждут своей очереди в конце; вопрос задаётся заново (варианты перемешиваются по-новому)
+  function learnResume(cards, snap, { random = Math.random } = {}) {
+    const has = (x) => (x || '').trim();
+    const usable = cards.filter((c) => (snap.direction === 'mixed'
+      ? has(c.term) && has(c.definition)
+      : has(sidesOf(snap.direction).want(c))));
+    const byId = new Map(usable.map((c) => [c.id, c]));
+    const keep = (ids = []) => ids.filter((id) => byId.has(id));
+    const order = keep(snap.order);
+    const known = new Set(order);
+    const fresh = usable.filter((c) => !known.has(c.id)).map((c) => c.id);
+    const s = {
+      cards: [...order, ...fresh].map((id) => byId.get(id)),
+      direction: snap.direction, random,
+      progress: Object.fromEntries(Object.entries(snap.progress || {}).filter(([id]) => byId.has(id))),
+      waiting: [...keep(snap.waiting), ...fresh],
+      active: keep(snap.active),
+      masteredIds: keep(snap.masteredIds),
+      round: snap.round || 0,
+      roundIds: keep(snap.roundIds),
+      pos: keep((snap.roundIds || []).slice(0, snap.pos)).length,
+    };
+    return s.pos >= s.roundIds.length ? learnNextRound(s) : learnView(s);
+  }
+
   function learnAnswer(s, ok) {
     if (s.done) return s;
     const { card, stage } = s.question;
@@ -888,6 +919,6 @@
   }
 
   return { createCore, memoryStorage, browserStorage, cardId, normalize, compareDictation, parseImport,
-    flashSession, flashAnswer, flashRetry, flashSnapshot, flashResume, TEST_MAX, checkAnswer, learnSession, learnAnswer, buildTest, gradeTest,
+    flashSession, flashAnswer, flashRetry, flashSnapshot, flashResume, TEST_MAX, checkAnswer, learnSession, learnAnswer, learnSnapshot, learnResume, buildTest, gradeTest,
     matchGame, matchPick, matchTime, MATCH_PENALTY_MS, mergeData };
 });

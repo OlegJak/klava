@@ -562,7 +562,7 @@ test('проверка: пустой ответ — неверно', () => {
 
 // ---------- Режим «Заучивание» ----------
 
-const { learnSession, learnAnswer } = KlavaCore;
+const { learnSession, learnAnswer, learnSnapshot, learnResume } = KlavaCore;
 const words = Array.from({ length: 9 }, (_, i) => ({ id: `w${i}`, term: `term${i}`, definition: `опр${i}` }));
 // Ответить на текущий вопрос верно или неверно
 const answer = (s, ok) => learnAnswer(s, ok);
@@ -600,6 +600,31 @@ test('заучивание: «смешанно» — в выборе напра�
   let s = learnSession(words.slice(0, 2), { direction: 'mixed', random: () => 0.1 });
   s = answerRound(s, true); // выбор пройден — дальше ввод
   assert.deepEqual([s.question.stage, s.question.direction, s.question.answer], [2, 'ru-en', 'term0']);
+});
+
+test('заучивание: сохранённое занятие продолжается с того же вопроса и прогресса', () => {
+  let s = learnSession(words.slice(0, 3), { random: () => 0.5 });
+  s = learnAnswer(learnAnswer(s, true), false); // два ответа в первом раунде
+  const snap = JSON.parse(JSON.stringify(learnSnapshot(s))); // как после хранилища
+  const r = learnResume(words.slice(0, 3), snap, { random: () => 0.5 });
+  assert.deepEqual([r.round, r.pos, r.question.card.id, r.question.stage], [s.round, s.pos, s.question.card.id, s.question.stage]);
+  assert.deepEqual(r.progress, s.progress);
+  // доучиваем до конца — как и без перезагрузки
+  let a = s;
+  let b = r;
+  for (let i = 0; i < 40 && !a.done; i++) { a = learnAnswer(a, true); b = learnAnswer(b, true); }
+  assert.deepEqual([a.done, a.mastered], [b.done, b.mastered]);
+});
+
+test('заучивание: при продолжении удалённые карточки выпадают, новые ждут в конце', () => {
+  let s = learnSession(words.slice(0, 3));
+  s = learnAnswer(s, true); // w0 ответили
+  const now = [words[1], words[2], words[5]]; // w0 удалили, w5 добавили
+  const r = learnResume(now, learnSnapshot(s));
+  assert.deepEqual(r.cards.map((c) => c.id), ['w1', 'w2', 'w5']);
+  assert.equal(r.question.card.id, 'w1');
+  assert.ok(r.waiting.includes('w5'));
+  assert.equal(r.progress.w0, undefined);
 });
 
 test('заучивание: «смешанно» берёт только карточки с термином и определением', () => {

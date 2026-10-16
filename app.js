@@ -1989,9 +1989,30 @@ function onFlashAction(act, btn) {
 // так «Я был прав» может засчитать ответ заново, взяв состояние до ответа
 const learn = { moduleId: null, state: null, feedback: null }; // feedback: { result, given, choice }
 
-function startLearn(moduleId) {
+// Место в заучивании запоминается по колоде и направлению (в настройках — значит, и в облаке):
+// ушли поправить слово, обновили страницу — продолжаем с того же вопроса и того же прогресса
+const learnKey = (deckId) => `${deckId}|${learnDir()}`;
+function saveLearn() {
+  const all = store.get('learn-progress', {});
+  const s = learn.state;
+  const started = s.round > 1 || s.pos > 0 || s.mastered > 0;
+  if (s.done || !started) delete all[learnKey(learn.moduleId)];
+  else all[learnKey(learn.moduleId)] = KlavaCore.learnSnapshot(s);
+  store.set('learn-progress', all);
+}
+
+// fresh — начать заново, не продолжая сохранённое
+function startLearn(moduleId, { fresh = false } = {}) {
   learn.moduleId = moduleId;
-  learn.state = KlavaCore.learnSession(deckCards(moduleId), { direction: learnDir() });
+  const saved = !fresh && store.get('learn-progress', {})[learnKey(moduleId)];
+  const resumed = saved && saved.direction === learnDir() && KlavaCore.learnResume(deckCards(moduleId), saved);
+  if (resumed && !resumed.done && resumed.total) {
+    learn.state = resumed;
+    toast(`Продолжаем: освоено ${resumed.mastered} из ${resumed.total}, раунд ${resumed.round}`, 'target');
+  } else {
+    learn.state = KlavaCore.learnSession(deckCards(moduleId), { direction: learnDir() });
+    saveLearn(); // начали заново — прежнее место забываем
+  }
   learn.feedback = null;
   renderLearn();
   learnAutoSpeak();
@@ -2023,6 +2044,8 @@ function renderLearn() {
     `${seg('mixed', 'Смешанно', 'Выбор — в обе стороны, писать — термин')}</div>` +
     (s.done ? '' : `<span class="learn-round">Раунд ${s.round}</span>`) +
     `<span class="flash-progress">Освоено ${s.mastered} из ${s.total}</span>` +
+    (!s.done && (s.round > 1 || s.pos > 0 || s.mastered > 0)
+      ? `<button class="icon-btn voice-btn" data-act="learn-restart" data-tip="Начать сначала" aria-label="Начать сначала">${icon('restart')}</button>` : '') +
     `<button class="icon-btn voice-btn" data-act="voice-settings" data-tip="Голос озвучки" aria-label="Голос озвучки">${icon('volume')}</button></div>` +
     `<div class="flash-track"><span style="width:${s.total ? (s.mastered / s.total) * 100 : 0}%"></span></div>`;
 
@@ -2097,6 +2120,7 @@ function learnRespond(result, given, choice) {
 function learnContinue(ok = learn.feedback.result !== 'wrong') {
   core.recordAnswer(learn.state.question.card.id, learn.state.question.direction, ok);
   learn.state = KlavaCore.learnAnswer(learn.state, ok);
+  saveLearn();
   learn.feedback = null;
   renderLearn();
   learnAutoSpeak();
@@ -2123,7 +2147,7 @@ function onLearnAction(act, btn) {
       renderLearn();
     });
   }
-  else if (act === 'learn-restart') startLearn(learn.moduleId);
+  else if (act === 'learn-restart') startLearn(learn.moduleId, { fresh: true });
   else if (act === 'learn-dir') { store.set('learn-dir', btn.dataset.dir); startLearn(learn.moduleId); }
 }
 
