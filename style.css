@@ -1680,6 +1680,35 @@ form.form-card { width: 100%; max-width: 560px; margin: 28px auto 0; }
 /* в тренажёре набора — на всю ширину, как настройки над ним */
 #trainer-modes, #trainer-own { max-width: none; margin-top: 28px; padding: 0; }
 
+/* Звезда «в избранные» в углу карточки и в заучивании */
+.card-star {
+  display: grid; place-items: center; width: 40px; height: 40px; padding: 0;
+  border: none; border-radius: 50%; background: none; color: var(--muted);
+  transition: color .15s, background .15s, transform .15s;
+}
+.card-star .i { width: 22px; height: 22px; }
+.card-star:hover { color: #f5b301; background: color-mix(in srgb, #f5b301 14%, transparent); }
+.card-star.on { color: #f5b301; }
+.card-star:active { transform: scale(.88); }
+.flash-card > .card-star { position: absolute; z-index: 3; top: 12px; right: 12px; }
+.learn-head { display: flex; align-items: center; gap: 4px; }
+.learn-head small { margin-right: auto; }
+
+/* Группа «Избранные» на странице модуля */
+.fav-group {
+  margin: 8px 0 24px; padding: 18px 18px 8px; border-radius: 18px;
+  background: color-mix(in srgb, #f5b301 8%, var(--panel)); box-shadow: var(--shadow);
+}
+.fav-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 10px; }
+.fav-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 20px; font-weight: 800; }
+.fav-head h2 .i { width: 22px; height: 22px; color: #f5b301; }
+.fav-head small { color: var(--muted); font-size: 13px; }
+.fav-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.fav-actions .pill-btn { display: inline-flex; align-items: center; gap: 6px; }
+.fav-actions .pill-btn .i { width: 16px; height: 16px; }
+.fav-group .term-list { box-shadow: none; }
+.kbd-legend .fav .key-cap { color: #f5b301; }
+
 /* Подсказка по клавишам под карточками */
 .kbd-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 28px; margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .kbd-legend > span { display: inline-flex; align-items: center; gap: 8px; }

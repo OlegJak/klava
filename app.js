@@ -1579,28 +1579,51 @@ function termRow(c, st, own, editing = false, withImages = false) {
     `<div class="term-body">${body}</div>` +
     (withImages ? `<span class="term-img">${c.image ? `<img src="${escapeAttr(c.image)}" alt="">` : ''}</span>` : '') +
     '<div class="term-tools">' +
-    `<button class="icon-btn star-btn" data-act="term-star" title="${star ? 'Снять отметку' : 'Отметить'}">${icon(star ? 'star-fill' : 'star')}</button>` +
+    `<button class="icon-btn star-btn" data-act="term-star" data-tip="${star ? 'Убрать из избранных' : 'В избранные'}">${icon(star ? 'star-fill' : 'star')}</button>` +
     `<button class="icon-btn" data-act="term-speak" title="Произнести">${icon('volume')}</button>` +
     (own ? `<button class="icon-btn" data-act="term-edit" title="${editing ? 'Готово' : 'Изменить'}">${icon(editing ? 'check' : 'pen')}</button>` : '') +
     '</div></li>';
 }
 
-// Что учить в режимах: все карточки или только отмеченные ★
+// Что учить в режимах: все карточки или только избранные ★
 const starredOnly = (id) => Boolean(store.get('starred-only', {})[id]);
 function studyFilter(id, total, starred) {
   if (!starred) return '';
   const only = starredOnly(id);
   const seg = (value, label) => `<button class="seg-btn${only === value ? ' on' : ''}" data-act="study-filter" data-only="${value}">${label}</button>`;
-  return `<div class="study-filter"><span>Учить в режимах:</span><div class="seg">${seg(false, `Все (${total})`)}${seg(true, `${icon('star-fill')} Отмеченные (${starred})`)}</div></div>`;
+  return `<div class="study-filter"><span>Учить в режимах:</span><div class="seg">${seg(false, `Все (${total})`)}${seg(true, `${icon('star-fill')} Избранные (${starred})`)}</div></div>`;
 }
 
 // ---------- Действия в списке терминов ----------
 function redrawTermRow(row, editing = false) {
+  const inFav = Boolean(row.closest('.fav-group'));
   const moduleId = parseRoute().id;
   const card = core.module(moduleId).cards.find((c) => c.id === row.dataset.card);
   const cards = core.module(moduleId).cards;
   row.outerHTML = termRow(card, core.cardStates(moduleId)[card.id], isOwnModule(moduleId), editing, cards.some((x) => x.image));
-  return $('page-body').querySelector(`.term-row[data-card="${CSS.escape(card.id)}"]`);
+  return $('page-body').querySelector(`${inFav ? '.fav-group' : '.all-terms'} .term-row[data-card="${CSS.escape(card.id)}"]`);
+}
+
+// «Избранные» — слова со звёздочкой: их нужно особенно подучить. На странице модуля — отдельной группой
+// над всеми терминами, с кнопками «учить только их»
+function favGroup(id) {
+  const cards = core.module(id).cards;
+  const fav = core.starredCards(id);
+  if (!fav.length) return '';
+  const states = core.cardStates(id);
+  const withImages = cards.some((x) => x.image);
+  const study = (mode, iconName, label) =>
+    `<button class="pill-btn" data-act="fav-study" data-mode="${mode}">${icon(iconName)} ${label}</button>`;
+  return '<section class="fav-group"><div class="fav-head">' +
+    `<div><h2>${icon('star-fill')} Избранные (${fav.length})</h2><small>Слова, которые нужно особенно подучить</small></div>` +
+    `<div class="fav-actions">${study('cards', 'cards', 'Карточки')}${study('learn', 'target', 'Заучивание')}${study('test', 'test', 'Тест')}</div></div>` +
+    `<ol class="term-list">${fav.map((c) => termRow(c, states[c.id], isOwnModule(id), false, withImages)).join('')}</ol></section>`;
+}
+
+function refreshFav(moduleId) {
+  const box = $('fav-box');
+  if (box) box.innerHTML = favGroup(moduleId);
+  refreshStudyFilter(moduleId);
 }
 
 function refreshStudyFilter(moduleId) {
@@ -1614,9 +1637,11 @@ function onTermAction(act, row) {
   if (act === 'term-speak') speakText(card.term, langsOf(moduleId).term);
   else if (act === 'term-star') {
     const on = core.toggleStar(card.id);
-    redrawTermRow(row, row.classList.contains('editing'));
-    refreshStudyFilter(moduleId);
-    toast(on ? 'Отмечено' : 'Отметка снята', on ? 'star-fill' : 'star');
+    // звезда в общем списке и группа «Избранные» — обе обновляются, где бы ни нажали
+    const main = $('page-body').querySelector(`.all-terms .term-row[data-card="${CSS.escape(card.id)}"]`);
+    if (main) redrawTermRow(main, main.classList.contains('editing'));
+    refreshFav(moduleId);
+    toast(on ? 'В избранных — подучите это слово' : 'Убрано из избранных', on ? 'star-fill' : 'star');
   } else if (act === 'term-edit') {
     const editing = !row.classList.contains('editing');
     const fresh = redrawTermRow(row, editing);
@@ -1647,7 +1672,7 @@ function renderModule(id) {
   const starred = core.starredCards(id).length;
   const list = cards.length
     ? `<h2 class="terms-title">Термины в модуле (${cards.length})</h2>` +
-      `<ol class="term-list">${cards.map((c) => termRow(c, states[c.id], own, false, cards.some((x) => x.image))).join('')}</ol>`
+      `<ol class="term-list all-terms">${cards.map((c) => termRow(c, states[c.id], own, false, cards.some((x) => x.image))).join('')}</ol>`
     : `<p class="empty">${emptyText}</p>`;
   const stats = core.moduleStats(id);
   const statsLine = stats.seen
@@ -1674,7 +1699,7 @@ function renderModule(id) {
     mode('test', icon('test'), 'Тест', 'Вопросы разных типов и оценка в конце') +
     mode('match', icon('match'), 'Подбор пар', 'Соединить термины с переводами на время') +
     (canTypeDeck(id) ? mode('type', icon('keyboard'), 'Набор', 'Печатать слова и фразы. Диктант и перевод на английский — в настройках набора') : '') +
-    `</div><div id="study-filter">${studyFilter(id, cards.length, starred)}</div>${list}`;
+    `</div><div id="study-filter">${studyFilter(id, cards.length, starred)}</div><div id="fav-box">${favGroup(id)}</div>${list}`;
 }
 
 // Режимы набора нужны физической клавиатуре: на сенсорном экране без мыши их не показываем
@@ -1720,6 +1745,18 @@ function startFlash(moduleId, { fresh = false, retry = null } = {}) {
 }
 
 // Лицевая и оборотная стороны: «англ → рус» — термин и определение, «рус → англ» — наоборот
+// Звезда «в избранные» в углу карточки (карточки и заучивание)
+const starButton = (act, on) => `<button type="button" class="card-star${on ? ' on' : ''}" data-act="${act}" ` +
+  `data-tip="${on ? 'Убрать из избранных' : 'В избранные — подучить'}" aria-label="${on ? 'Убрать из избранных' : 'В избранные'}">` +
+  `${icon(on ? 'star-fill' : 'star')}</button>`;
+
+// Нажали звезду во время занятия: отметить карточку и перерисовать только кнопку
+function toggleStudyStar(btn, cardId, act) {
+  const on = core.toggleStar(cardId);
+  btn.outerHTML = starButton(act, on);
+  toast(on ? 'В избранных — подучите это слово' : 'Убрано из избранных', on ? 'star-fill' : 'star');
+}
+
 const cardImage = (card) => (card?.image ? `<img class="card-img" src="${escapeAttr(card.image)}" alt="">` : '');
 
 function flashSides(card) {
@@ -1765,6 +1802,7 @@ function renderFlash() {
     `<div class="flash-card${flashcards.flipped ? ' flipped' : ''}" data-act="flash-flip" role="button" tabindex="0" aria-label="Перевернуть карточку">` +
     '<div class="flash-inner">' +
     `<span class="swipe-stamp yes">${words.know}</span><span class="swipe-stamp no">${words.dont}</span>` +
+    starButton('flash-star', core.isStarred(s.current.id)) +
     `<div class="face front">${cardImage(s.current)}<span class="flash-text${long(front)}">${front}</span><small class="flash-hint">${canType()
       ? 'Нажмите, чтобы перевернуть'
       : 'Коснитесь, чтобы перевернуть · смахните вправо или влево'}</small></div>` +
@@ -1779,7 +1817,8 @@ function renderFlash() {
     (canType() ? '<div class="kbd-legend">' +
       `<span><kbd class="key-cap wide">Пробел</kbd>перевернуть</span>` +
       `<span class="no"><kbd class="key-cap">${icon('arrow', 'flip')}</kbd>${lowerFirst(words.dont)}</span>` +
-      `<span class="yes"><kbd class="key-cap">${icon('arrow')}</kbd>${lowerFirst(words.know)}</span></div>` : '') +
+      `<span class="yes"><kbd class="key-cap">${icon('arrow')}</kbd>${lowerFirst(words.know)}</span>` +
+      `<span class="fav"><kbd class="key-cap">S</kbd>в избранные</span></div>` : '') +
     '</div>';
 }
 
@@ -1835,7 +1874,7 @@ function initFlashSwipe() {
   const body = $('page-body');
   body.addEventListener('pointerdown', (e) => {
     const card = e.target.closest('.flash-card');
-    if (!card || flashcards.busy) return;
+    if (!card || flashcards.busy || e.target.closest('.card-star')) return; // звезда — не свайп и не переворот
     Object.assign(swipe, { x: e.clientX, dx: 0, active: true, moved: false });
     try { card.setPointerCapture(e.pointerId); } catch {}
   });
@@ -1867,6 +1906,10 @@ function initFlashSwipe() {
 
 function onFlashAction(act, btn) {
   const s = flashcards.session;
+  if (act === 'flash-star') {
+    toggleStudyStar(btn || document.querySelector('.card-star'), s.current.id, 'flash-star');
+    return;
+  }
   if (act === 'flash-flip') {
     if (swipe.moved) { swipe.moved = false; return; } // это был свайп, а не нажатие
     flashFlip();
@@ -1937,7 +1980,8 @@ function renderLearn() {
   const langs = deckLangs(learn.moduleId);
   const target = isTermDeck(langs) ? (q.direction === 'en-ru' ? 'определение' : 'термин')
     : q.direction === 'en-ru' ? 'перевод' : LANGS[langs.term]?.adv || 'термин';
-  const speakBtn = learnTerm() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '';
+  const speakBtn = starButton('learn-star', core.isStarred(q.card.id)) +
+    (learnTerm() ? `<button class="icon-btn" data-act="learn-speak" title="Произнести">${icon('volume')}</button>` : '');
   let body;
   if (q.stage === 1) {
     body = '<div class="learn-choices">' + q.choices.map((c, i) => {
@@ -2006,6 +2050,7 @@ function onLearnAction(act, btn) {
   else if (act === 'learn-next') learnContinue();
   else if (act === 'learn-override') learnContinue(true);
   else if (act === 'learn-speak') speakText(learnTerm(), learnTermLang());
+  else if (act === 'learn-star') toggleStudyStar(btn, learn.state.question.card.id, 'learn-star');
   else if (act === 'learn-restart') startLearn(learn.moduleId);
   else if (act === 'learn-dir') { store.set('learn-dir', btn.dataset.dir); startLearn(learn.moduleId); }
 }
@@ -2300,7 +2345,7 @@ function onFlashKey(e) {
   if (parseRoute().screen !== 'cards' || e.ctrlKey || e.metaKey || e.altKey) return;
   // пробел и Enter на кнопках и полях работают как обычно
   if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
-  const act = { ' ': 'flash-flip', Enter: 'flash-flip', ArrowRight: 'flash-yes', ArrowLeft: 'flash-no' }[e.key];
+  const act = { ' ': 'flash-flip', Enter: 'flash-flip', ArrowRight: 'flash-yes', ArrowLeft: 'flash-no', s: 'flash-star', S: 'flash-star', ы: 'flash-star', Ы: 'flash-star' }[e.key];
   if (!act || flashcards.session.done) return;
   e.preventDefault();
   onFlashAction(act);
@@ -3150,6 +3195,9 @@ function onPageAction(e) {
     onTestAction(act, btn);
   } else if (act.startsWith('term-')) {
     onTermAction(act, btn.closest('.term-row'));
+  } else if (act === 'fav-study') {
+    store.set('starred-only', { ...store.get('starred-only', {}), [r.id]: true });
+    location.hash = `#/module/${r.id}/${btn.dataset.mode}`;
   } else if (act === 'study-filter') {
     const only = store.get('starred-only', {});
     store.set('starred-only', { ...only, [r.id]: btn.dataset.only === 'true' });
